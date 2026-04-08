@@ -23,4 +23,6 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  // Añadimos un array de plugins vacío para que Cloudflare lo encuentre
+  plugins: [],
 });
