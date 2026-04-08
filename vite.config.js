@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite'
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 export default defineConfig({
   build: {
     outDir: "dist",
@@ -24,5 +26,5 @@ export default defineConfig({
     port: 3000,
   },
   // Añadimos un array de plugins vacío para que Cloudflare lo encuentre
-  plugins: [],
+  plugins: [cloudflare()],
 });
