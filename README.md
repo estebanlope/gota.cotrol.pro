@@ -1,4 +1,3 @@
-```markdown
 # Gota Control — Sistema de préstamos
 
 ## Stack
