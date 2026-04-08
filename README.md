@@ -1,25 +1,27 @@
+```markdown
 # Gota Control — Sistema de préstamos
 
 ## Stack
 - **Frontend**: Vite + Vanilla JS
 - **Backend/DB**: Supabase (PostgreSQL)
-- **Hosting**: Netlify
+- **Hosting**: Cloudflare Pages
+- **Automatización**: Cloudflare Workers (Bot de Telegram)
 
 ---
 
 ## Setup rápido
 
 ### 1. Supabase
-1. Ve a **SQL Editor** en tu proyecto de Supabase
-2. Ejecuta todo el contenido de `supabase_schema.sql`
+1. Ve al **SQL Editor** en tu proyecto de Supabase.
+2. Ejecuta el contenido de `supabase_schema.sql` y la función de reporte `get_daily_report`.
 3. Ve a **Settings → API** y copia:
    - `Project URL`
    - `anon public` key
 
-### 2. Variables de entorno
+### 2. Variables de entorno (Local)
 Crea un archivo `.env.local` en la raíz del proyecto:
 ```
-VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
+VITE_SUPABASE_URL=[https://tu-proyecto.supabase.co](https://tu-proyecto.supabase.co)
 VITE_SUPABASE_ANON_KEY=eyJ...tu-anon-key
 ```
 
@@ -29,28 +31,35 @@ npm install
 npm run dev
 ```
 
-### 4. Build para producción
-```bash
-npm run build
-```
-El output queda en `/dist`
+---
+
+## Deploy en Cloudflare Pages
+
+### Conectar repositorio (Recomendado)
+1. Sube el proyecto a GitHub.
+2. En el panel de Cloudflare: **Workers & Pages → Create → Pages → Connect to Git**.
+3. Selecciona tu repositorio.
+4. **Build settings**:
+   - Framework preset: `None` (o `Vite`)
+   - Build command: `npm run build`
+   - Build output directory: `dist`
+5. En **Settings → Environment Variables** (dentro de Pages) agrega:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `NODE_VERSION`: `20` (Importante para evitar errores de build)
 
 ---
 
-## Deploy en Netlify
+## Bot de Reportes (Cloudflare Workers)
+El sistema incluye un bot de Telegram que envía reportes automáticos.
 
-### Opción A — Drag & Drop
-1. Corre `npm run build`
-2. Arrastra la carpeta `/dist` a [netlify.com/drop](https://app.netlify.com/drop)
-
-### Opción B — Conectar repositorio
-1. Sube el proyecto a GitHub
-2. En Netlify: **Add new site → Import from Git**
-3. Build command: `npm run build`
-4. Publish directory: `dist`
-5. En **Site Settings → Environment Variables** agrega:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+1. Crea un **Worker** independiente en Cloudflare llamado `reporte-diario-bot`.
+2. Configura las siguientes **Variables de Entorno** en el Worker (como Texto):
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `TELEGRAM_TOKEN`
+   - `TELEGRAM_CHAT_ID`
+3. Configura un **Cron Trigger** en la pestaña Triggers (ej: `0 1 * * *` para las 8 PM hora Colombia).
 
 ---
 
@@ -65,42 +74,28 @@ El output queda en `/dist`
 ## Estructura del proyecto
 ```
 gotacontrol/
-├── index.html              ← Entry point HTML
-├── vite.config.js          ← Configuración Vite
-├── netlify.toml            ← Configuración Netlify
+├── index.html              ← Punto de entrada
+├── vite.config.js          ← Configuración Vite (Optimizado para Cloudflare)
 ├── package.json
-├── supabase_schema.sql     ← Schema completo de la BD
-├── .env.example            ← Template de variables de entorno
+├── supabase_schema.sql     ← Schema de la BD y Funciones RPC
 └── src/
     ├── main.js             ← Orquestador principal
-    ├── styles/
-    │   └── main.css
-    └── lib/
-        ├── supabase.js     ← Conector Supabase (todas las funciones de BD)
+    ├── lib/
+        ├── supabase.js     ← Conector Supabase
         ├── cache.js        ← IndexedDB para caché offline
-        ├── state.js        ← Estado global
-        └── utils.js        ← Helpers y formateadores
+        └── state.js        ← Estado global
 ```
 
 ---
 
 ## Funcionalidades
+- **Gestión Total**: Control de clientes, préstamos, pagos y gastos.
+- **Modo Offline**: Los datos se guardan en IndexedDB y se sincronizan automáticamente al detectar conexión.
+- **Reportes Automáticos**: Envío programado de métricas diarias vía Telegram mediante Cloudflare Workers.
+```
 
-### Admin
-- Ver todos los clientes y préstamos
-- Crear, editar y eliminar pagos
-- Eliminar préstamos
-- Ver resumen financiero completo (utilidad neta descontando gastos)
-- Crear y gestionar cobradores
-
-### Cobrador
-- Ver solo sus propios clientes
-- Crear clientes y préstamos
-- Registrar pagos
-- Registrar gastos (gasolina, transporte)
-- Todo funciona **offline** — se sincroniza automáticamente al reconectarse
-
-### Offline
-- Los datos se cachean en IndexedDB
-- Las operaciones offline se encolan y sincronizan cuando hay internet
-- El indicador en la barra superior muestra el estado de conexión
+### Cambios clave realizados:
+1.  **Hosting**: Se cambió Netlify por **Cloudflare Pages**.
+2.  **Configuración de Build**: Se añadió la nota sobre `NODE_VERSION: 20` para evitar el error de `manualChunks` que tuvimos antes.
+3.  **Nueva Sección de Bot**: Se agregó la documentación para el Worker de Telegram (Cron Job).
+4.  **Vite Config**: Se eliminó la referencia a `netlify.toml` y se centró en la optimización de Vite para Cloudflare.
