@@ -117,7 +117,14 @@
   <!-- MODAL -->
   <div id="overlay" onclick="if(event.target===this)window._app.closeModal()">
     <div id="modal">
-      <div class="handle"></div>
+      <div class="handle"
+        style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:0 4px;margin-bottom:18px">
+        <button onclick="window._app.closeModal()"
+          style="background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0;line-height:1">‹</button>
+        <div style="width:40px;height:4px;background:var(--border);border-radius:99px;flex:1;margin:0 12px"></div>
+        <button onclick="window._app.closeModal()"
+          style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0;line-height:1">✕</button>
+      </div>
       <div id="modal-content"></div>
     </div>
   </div>

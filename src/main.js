@@ -545,20 +545,31 @@ function openClientDetail(clientId) {
             ? pays
                 .slice()
                 .reverse()
-                .map(
-                  (p) => `
+                .map((p) => {
+                  const methodLabel =
+                    p.payment_method === "transfer"
+                      ? "🏦 Transferencia"
+                      : "💵 Efectivo";
+                  const methodColor =
+                    p.payment_method === "transfer"
+                      ? "var(--blue)"
+                      : "var(--accent)";
+                  return `
       <div class="pay-item">
-        <div><div class="pamt">${fmt(p.amount)}</div><div class="pdate">${p.payment_date}</div></div>
+        <div>
+          <div class="pamt">${fmt(p.amount)}</div>
+          <div class="pdate">${p.payment_date} · <span style="color:${methodColor}">${methodLabel}</span></div>
+        </div>
         ${
           isAdmin
             ? `<div class="pi-actions">
-          <button class="btn-ep" onclick="window._app.editPayment('${p.id}',${p.amount})">✏️</button>
+          <button class="btn-ep" onclick="window._app.editPayment('${p.id}',${p.amount},'${p.payment_method || "cash"}')">✏️</button>
           <button class="btn-dp" onclick="window._app.delPayment('${p.id}','${l.id}')">🗑</button>
         </div>`
             : ""
         }
-      </div>`,
-                )
+      </div>`;
+                })
                 .join("")
             : '<p style="color:var(--muted);font-size:13px;padding:8px 0">Sin pagos aún.</p>';
 
@@ -593,6 +604,18 @@ function openClientDetail(clientId) {
       <div class="pay-row">
         <input type="number" id="pay-${l.id}" placeholder="${Math.round(cuota)}" inputmode="numeric">
         <button class="btn-pay" onclick="window._app.addPayment('${l.id}')">Pagar</button>
+      </div>
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;padding:8px 14px;background:var(--s2);border:1px solid var(--border);border-radius:10px;flex:1">
+          <input type="radio" name="pay-method-${l.id}" value="cash" checked
+            style="accent-color:var(--accent);width:16px;height:16px">
+          💵 Efectivo
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;padding:8px 14px;background:var(--s2);border:1px solid var(--border);border-radius:10px;flex:1">
+          <input type="radio" name="pay-method-${l.id}" value="transfer"
+            style="accent-color:var(--blue);width:16px;height:16px">
+          🏦 Transferencia
+        </label>
       </div>
       <div class="quick-btns">
         <button class="qb" onclick="document.getElementById('pay-${l.id}').value=${Math.round(cuota)}">
@@ -1035,7 +1058,18 @@ async function addPayment(loanId) {
     return;
   }
 
-  const payData = { loan_id: loanId, amount, payment_date: today() };
+  // Read payment method radio
+  const methodEl = document.querySelector(
+    `input[name="pay-method-${loanId}"]:checked`,
+  );
+  const method = methodEl?.value || "cash";
+
+  const payData = {
+    loan_id: loanId,
+    amount,
+    payment_date: today(),
+    payment_method: method,
+  };
 
   if (navigator.onLine) {
     const { data, error } = await createPayment(payData, state.token);
@@ -1069,12 +1103,20 @@ async function addPayment(loanId) {
   showToast("Pago registrado ✓");
 }
 
-async function editPayment(payId, currentAmount) {
+async function editPayment(payId, currentAmount, currentMethod) {
   const newAmt = prompt(`Nuevo monto (actual: ${fmt(currentAmount)}):`);
   if (!newAmt || isNaN(parseFloat(newAmt))) return;
+  const methods = ["cash", "transfer"];
+  const methodLbl = ["💵 Efectivo", "🏦 Transferencia"];
+  const curIdx = methods.indexOf(currentMethod || "cash");
+  const choice = confirm(
+    `¿Cambiar método de pago?\nActual: ${methodLbl[curIdx]}\nAceptar = Transferencia | Cancelar = Efectivo`,
+  );
+  const newMethod = choice ? "transfer" : "cash";
+
   const { error } = await updatePayment(
     payId,
-    { amount: parseFloat(newAmt) },
+    { amount: parseFloat(newAmt), payment_method: newMethod },
     state.token,
   );
   if (error) {
@@ -1083,14 +1125,16 @@ async function editPayment(payId, currentAmount) {
   }
   setState({
     payments: state.payments.map((p) =>
-      p.id === payId ? { ...p, amount: parseFloat(newAmt) } : p,
+      p.id === payId
+        ? { ...p, amount: parseFloat(newAmt), payment_method: newMethod }
+        : p,
     ),
   });
   await putOne(STORES.PAYMENTS, {
     ...state.payments.find((p) => p.id === payId),
     amount: parseFloat(newAmt),
+    payment_method: newMethod,
   });
-  // Re-abrir modal del cliente
   const loanId = state.payments.find((p) => p.id === payId)?.loan_id;
   const clientId = state.loans.find((l) => l.id === loanId)?.client_id;
   if (clientId) openClientDetail(clientId);
@@ -1272,7 +1316,10 @@ function renderResumen() {
   let cap = 0,
     ints = 0,
     totalDebe = 0,
-    rec = 0;
+    rec = 0,
+    recCash = 0,
+    recTransfer = 0;
+  let capitalActivo = 0; // capital prestado que aún no ha regresado
   const byMode = {
     daily: { c: 0, t: 0 },
     weekly: { c: 0, t: 0 },
@@ -1280,14 +1327,29 @@ function renderResumen() {
   };
 
   loans.forEach((l) => {
-    const td = parseFloat(l.amount) * (1 + parseFloat(l.interest_rate) / 100);
-    const tr = payments
-      .filter((p) => p.loan_id === l.id)
-      .reduce((s, p) => s + parseFloat(p.amount), 0);
-    cap += parseFloat(l.amount);
-    ints += (parseFloat(l.amount) * parseFloat(l.interest_rate)) / 100;
+    const principal = parseFloat(l.amount);
+    const interest = (principal * parseFloat(l.interest_rate)) / 100;
+    const td = principal + interest;
+    const loanPays = payments.filter((p) => p.loan_id === l.id);
+    const tr = loanPays.reduce((s, p) => s + parseFloat(p.amount), 0);
+
+    cap += principal;
+    ints += interest;
     totalDebe += td;
     rec += tr;
+
+    // Cobros por método
+    loanPays.forEach((p) => {
+      if (p.payment_method === "transfer") recTransfer += parseFloat(p.amount);
+      else recCash += parseFloat(p.amount);
+    });
+
+    // Capital activo: solo la porción del principal que aún no ha regresado.
+    // A medida que el cliente paga, los primeros pagos se imputan al capital.
+    // Una vez recuperado el capital, el resto son intereses.
+    const capitalRecuperado = Math.min(tr, principal); // cuánto del principal ya regresó
+    capitalActivo += principal - capitalRecuperado;
+
     if (byMode[l.collection_mode]) {
       byMode[l.collection_mode].c++;
       byMode[l.collection_mode].t += td;
@@ -1296,8 +1358,9 @@ function renderResumen() {
 
   const totalExp = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
   const base = parseFloat(capitalBase) || 20_000_000;
-  // Dinero base + lo recaudado - lo prestado actualmente - gastos
-  const capitalActual = base + rec - cap - totalExp;
+  // Capital disponible = base - capital aún afuera + cobros de intereses - gastos
+  const interesRecuperado = Math.max(0, rec - (cap - capitalActivo));
+  const capitalDisponible = base - capitalActivo + interesRecuperado - totalExp;
 
   const firstOfMonth = today().slice(0, 7) + "-01";
   const todayStr = today();
@@ -1324,13 +1387,13 @@ function renderResumen() {
     ? `
     <div class="card">
       <div class="card-title">💰 Capital base y posición actual</div>
-      <div class="sum-row"><span class="sl">Capital base inicial</span>     <span class="sv c-blue">${fmt(base)}</span></div>
-      <div class="sum-row"><span class="sl">+ Total recaudado</span>         <span class="sv c-green">+${fmt(rec)}</span></div>
-      <div class="sum-row"><span class="sl">− Capital prestado activo</span> <span class="sv c-orange">−${fmt(cap)}</span></div>
-      <div class="sum-row"><span class="sl">− Gastos operativos</span>       <span class="sv c-red">−${fmt(totalExp)}</span></div>
+      <div class="sum-row"><span class="sl">Capital base inicial</span>        <span class="sv c-blue">${fmt(base)}</span></div>
+      <div class="sum-row"><span class="sl">− Capital activo (en la calle)</span><span class="sv c-orange">−${fmt(capitalActivo)}</span></div>
+      <div class="sum-row"><span class="sl">+ Intereses recuperados</span>       <span class="sv c-green">+${fmt(interesRecuperado)}</span></div>
+      <div class="sum-row"><span class="sl">− Gastos operativos</span>           <span class="sv c-red">−${fmt(totalExp)}</span></div>
       <div class="sum-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">
         <span class="sl" style="font-weight:700;color:var(--text)">= Capital disponible ahora</span>
-        <span class="sv ${capitalActual >= 0 ? "c-green" : "c-red"}" style="font-size:17px;font-weight:700">${fmt(capitalActual)}</span>
+        <span class="sv ${capitalDisponible >= 0 ? "c-green" : "c-red"}" style="font-size:17px;font-weight:700">${fmt(capitalDisponible)}</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
         <label class="fl" style="white-space:nowrap">Capital base ($):</label>
@@ -1345,12 +1408,17 @@ function renderResumen() {
 
     <div class="card">
       <div class="card-title">Resumen financiero — Total acumulado</div>
-      <div class="sum-row"><span class="sl">Capital total prestado</span> <span class="sv">${fmt(cap)}</span></div>
-      <div class="sum-row"><span class="sl">Intereses esperados</span>    <span class="sv c-green">${fmt(ints)}</span></div>
-      <div class="sum-row"><span class="sl">Total a recaudar</span>       <span class="sv">${fmt(totalDebe)}</span></div>
-      <div class="sum-row"><span class="sl">Total recaudado</span>        <span class="sv c-blue">${fmt(rec)}</span></div>
-      <div class="sum-row"><span class="sl">Saldo pendiente</span>        <span class="sv c-orange">${fmt(totalDebe - rec)}</span></div>
-      <div class="sum-row"><span class="sl">Total gastos</span>           <span class="sv c-red">−${fmt(totalExp)}</span></div>
+      <div class="sum-row"><span class="sl">Capital total prestado</span>    <span class="sv">${fmt(cap)}</span></div>
+      <div class="sum-row"><span class="sl">Capital activo (pendiente)</span> <span class="sv c-orange">${fmt(capitalActivo)}</span></div>
+      <div class="sum-row"><span class="sl">Intereses esperados</span>        <span class="sv c-green">${fmt(ints)}</span></div>
+      <div class="sum-row"><span class="sl">Total a recaudar</span>           <span class="sv">${fmt(totalDebe)}</span></div>
+      <div class="sum-row"><span class="sl">💵 Recaudado efectivo</span>      <span class="sv c-green">${fmt(recCash)}</span></div>
+      <div class="sum-row"><span class="sl">🏦 Recaudado transferencia</span> <span class="sv c-blue">${fmt(recTransfer)}</span></div>
+      <div class="sum-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+        <span class="sl">Total recaudado</span>                              <span class="sv c-green">${fmt(rec)}</span>
+      </div>
+      <div class="sum-row"><span class="sl">Saldo pendiente</span>           <span class="sv c-orange">${fmt(totalDebe - rec)}</span></div>
+      <div class="sum-row"><span class="sl">Total gastos</span>              <span class="sv c-red">−${fmt(totalExp)}</span></div>
       <div class="sum-row"><span class="sl" style="font-weight:700">Utilidad neta</span>
         <span class="sv c-green" style="font-size:16px">${fmt(rec - cap - totalExp)}</span>
       </div>
@@ -1632,10 +1700,21 @@ async function desactivarUsuario(userId) {
 // ══════════════════════════════════════════════════════════
 function openModal() {
   document.getElementById("overlay").classList.add("open");
+  // Push a history state so the browser back button closes the modal
+  history.pushState({ modal: true }, "");
 }
+
 function closeModal() {
   document.getElementById("overlay").classList.remove("open");
+  document.getElementById("modal-content").innerHTML = "";
 }
+
+// Handle browser/Android back button
+window.addEventListener("popstate", (e) => {
+  if (document.getElementById("overlay").classList.contains("open")) {
+    closeModal();
+  }
+});
 
 // ══════════════════════════════════════════════════════════
 // TOAST

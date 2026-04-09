@@ -305,10 +305,10 @@ export async function deleteLoan(loanId, token) {
 // ════════════════════════════════════════════════════════════
 
 /**
- * Registra un pago.
+ * Registra un pago con método (cash | transfer).
  */
 export async function createPayment(
-  { loan_id, amount, payment_date, notes },
+  { loan_id, amount, payment_date, notes, payment_method },
   token,
 ) {
   const { data, error } = await supabase.rpc("create_payment", {
@@ -317,6 +317,7 @@ export async function createPayment(
     p_amount: amount,
     p_payment_date: payment_date,
     p_notes: notes || null,
+    p_payment_method: payment_method || "cash",
   });
   return {
     data: data?.[0] || null,
@@ -325,14 +326,19 @@ export async function createPayment(
 }
 
 /**
- * Actualiza un pago (monto y notas). Solo admin.
+ * Actualiza un pago (monto, notas, método). Solo admin.
  */
-export async function updatePayment(paymentId, { amount, notes }, token) {
+export async function updatePayment(
+  paymentId,
+  { amount, notes, payment_method },
+  token,
+) {
   const { error } = await supabase.rpc("update_payment", {
     p_token: token,
     p_payment_id: paymentId,
     p_amount: amount,
     p_notes: notes || null,
+    p_payment_method: payment_method || null,
   });
   return { error: error ? parseRpcError(error) : null };
 }
