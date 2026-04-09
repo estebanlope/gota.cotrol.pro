@@ -158,7 +158,7 @@ export async function getClients(token) {
  * Crea un nuevo cliente.
  */
 export async function addNewClient(
-  { full_name, id_number, phone, address, notes },
+  { full_name, id_number, phone, address, notes, photo },
   token,
 ) {
   const { data, error } = await supabase.rpc("create_client", {
@@ -168,6 +168,7 @@ export async function addNewClient(
     p_phone: phone || null,
     p_address: address || null,
     p_notes: notes || null,
+    p_photo: photo || null,
   });
   return {
     data: data?.[0] || null,
@@ -199,7 +200,8 @@ export async function updateClient(clientId, updates, token) {
 }
 
 /**
- * Obtiene resumen financiero filtrado por rango de fechas. Solo admin.
+ * Obtiene resumen financiero filtrado por rango de fechas.
+ * Admin ve todo, cobrador ve solo sus datos.
  */
 export async function getSummaryByRange(dateFrom, dateTo, token) {
   const { data, error } = await supabase.rpc("get_summary_by_range", {
@@ -208,6 +210,40 @@ export async function getSummaryByRange(dateFrom, dateTo, token) {
     p_date_to: dateTo,
   });
   return { data: data || null, error: error ? parseRpcError(error) : null };
+}
+
+/**
+ * Elimina (soft delete) un cliente. Solo admin.
+ */
+export async function deleteClient(clientId, token) {
+  const { error } = await supabase.rpc("delete_client", {
+    p_token: token,
+    p_client_id: clientId,
+  });
+  return { error: error ? parseRpcError(error) : null };
+}
+
+// ════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════
+
+/** Lee un valor de configuración global (todos los autenticados). */
+export async function getConfig(key, token) {
+  const { data, error } = await supabase.rpc("get_config", {
+    p_token: token,
+    p_key: key,
+  });
+  return { data: data ?? null, error: error ? parseRpcError(error) : null };
+}
+
+/** Actualiza un valor de configuración. Solo admin. */
+export async function setConfig(key, value, token) {
+  const { error } = await supabase.rpc("set_config", {
+    p_token: token,
+    p_key: key,
+    p_value: String(value),
+  });
+  return { error: error ? parseRpcError(error) : null };
 }
 
 /**

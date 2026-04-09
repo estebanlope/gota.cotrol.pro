@@ -10,7 +10,12 @@ import {
   syncOfflineQueue,
 } from "./lib/supabase.js";
 import { getLoans, createLoan, deleteLoan } from "./lib/supabase.js";
-import { getClients, addNewClient, updateClient } from "./lib/supabase.js";
+import {
+  getClients,
+  addNewClient,
+  updateClient,
+  deleteClient,
+} from "./lib/supabase.js";
 import { createPayment, updatePayment, deletePayment } from "./lib/supabase.js";
 import { getExpenses, createExpense, deleteExpense } from "./lib/supabase.js";
 import {
@@ -18,7 +23,7 @@ import {
   createUser,
   deactivateUser as deactivateUserApi,
 } from "./lib/supabase.js";
-import { getSummaryByRange } from "./lib/supabase.js";
+import { getSummaryByRange, getConfig, setConfig } from "./lib/supabase.js";
 import {
   openDB,
   getAll,
@@ -91,7 +96,7 @@ async function startApp(user, token, offlineMode = false) {
   rb.className =
     "role-badge " + (user.role === "admin" ? "r-admin" : "r-collector");
 
-  // Mostrar tabs de admin
+  // Mostrar tabs de admin (solo usuarios)
   if (user.role === "admin") {
     document
       .querySelectorAll(".admin-only")
@@ -168,13 +173,18 @@ async function loadAllData(offlineOnly = false) {
   });
   renderCurrentScreen();
 
+  // Always try to restore capitalBase from localStorage first
+  const savedBase = localStorage.getItem("gtg_capital_base");
+  if (savedBase) setState({ capitalBase: parseFloat(savedBase) });
+
   if (offlineOnly || !navigator.onLine) return;
 
   // Cargar desde Supabase
-  const [loansRes, clientsRes, expensesRes] = await Promise.all([
+  const [loansRes, clientsRes, expensesRes, configRes] = await Promise.all([
     getLoans(state.token),
     getClients(state.token),
     getExpenses(state.token),
+    getConfig("capital_base", state.token),
   ]);
 
   // Extraer pagos de los préstamos (ya vienen en join)
@@ -189,6 +199,11 @@ async function loadAllData(offlineOnly = false) {
     clients: clientsRes.data || [],
     expenses: expensesRes.data || [],
   });
+  if (configRes?.data) {
+    const base = parseFloat(configRes.data);
+    setState({ capitalBase: base });
+    localStorage.setItem("gtg_capital_base", base);
+  }
 
   await Promise.all([
     replaceAll(STORES.LOANS, cleanLoans),
@@ -376,6 +391,7 @@ let clientFilter = "all";
 
 function renderClients() {
   const { loans, payments, clients } = state;
+  const isAdmin = state.user?.role === "admin";
   const q = (
     document.getElementById("client-search")?.value || ""
   ).toLowerCase();
@@ -385,28 +401,30 @@ function renderClients() {
       c.full_name.toLowerCase().includes(q) || (c.id_number || "").includes(q);
     if (!match) return false;
     if (clientFilter === "all") return true;
-    // Check status of client's loans
     const clientLoans = loans.filter((l) => l.client_id === c.id);
     if (!clientLoans.length) return clientFilter === "pending";
     return clientLoans.some((l) => statusOf(l, payments) === clientFilter);
   });
 
+  // Keep search + filters OUTSIDE the scrollable area via position:sticky
   document.getElementById("screen-clients").innerHTML = `
-    <div class="search-wrap">
-      <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input type="text" id="client-search" placeholder="Buscar cliente..." oninput="window._app.renderClients()" value="${q}">
+    <div class="clients-sticky">
+      <div class="search-wrap">
+        <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="client-search" placeholder="Buscar cliente..." oninput="window._app.renderClients()" value="${q}">
+      </div>
+      <div class="filter-row">
+        ${["all", "pending", "active", "paid", "overdue"]
+          .map(
+            (f) => `
+          <div class="chip ${clientFilter === f ? "active" : ""}" onclick="window._app.setClientFilter('${f}',this)">
+            ${f === "all" ? "Todos" : STATUS_LABEL[f]}
+          </div>`,
+          )
+          .join("")}
+      </div>
     </div>
-    <div class="filter-row">
-      ${["all", "pending", "active", "paid", "overdue"]
-        .map(
-          (f) => `
-        <div class="chip ${clientFilter === f ? "active" : ""}" onclick="window._app.setClientFilter('${f}',this)">
-          ${f === "all" ? "Todos" : STATUS_LABEL[f]}
-        </div>`,
-        )
-        .join("")}
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
+    <div class="clients-list-wrap">
       ${
         !filtered.length
           ? `<div class="empty"><div class="ei">📋</div><p>No hay clientes.<br>Crea uno desde <b>Nuevo</b>.</p></div>`
@@ -441,17 +459,26 @@ function renderClients() {
                   active: "#0099ff",
                   pending: "#ffb347",
                 }[st];
+                const photoHtml = c.photo
+                  ? `<img src="${c.photo}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid var(--border)">`
+                  : `<div style="width:40px;height:40px;border-radius:50%;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👤</div>`;
                 return `
-          <div class="dc" onclick="window._app.openClientDetail('${c.id}')">
-            <div class="dc-top">
-              <div>
-                <div class="dc-name">${c.full_name}</div>
-                <div class="dc-sub">${c.id_number || "Sin cédula"} · ${cLoans.length} préstamo${cLoans.length !== 1 ? "s" : ""}</div>
+          <div class="dc">
+            <div class="dc-top" onclick="window._app.openClientDetail('${c.id}')">
+              <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+                ${photoHtml}
+                <div style="min-width:0">
+                  <div class="dc-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.full_name}</div>
+                  <div class="dc-sub">${c.id_number || "Sin cédula"} · ${cLoans.length} préstamo${cLoans.length !== 1 ? "s" : ""}</div>
+                </div>
               </div>
-              <div class="badge ${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</div>
+              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+                <div class="badge ${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</div>
+                ${isAdmin ? `<button onclick="event.stopPropagation();window._app.delClient('${c.id}')" style="background:rgba(255,68,68,.1);color:var(--red);border:none;border-radius:6px;padding:4px 7px;font-size:11px;cursor:pointer">🗑</button>` : ""}
+              </div>
             </div>
-            <div class="mini-bar"><div class="mini-fill" style="width:${pct}%;background:${color}"></div></div>
-            <div class="dc-row"><span>Recaudado: <b>${fmt(totalRec)}</b></span><span>Saldo: <b>${fmt(totalDebe - totalRec)}</b></span></div>
+            <div class="mini-bar" onclick="window._app.openClientDetail('${c.id}')"><div class="mini-fill" style="width:${pct}%;background:${color}"></div></div>
+            <div class="dc-row" onclick="window._app.openClientDetail('${c.id}')"><span>Recaudado: <b>${fmt(totalRec)}</b></span><span>Saldo: <b>${fmt(totalDebe - totalRec)}</b></span></div>
           </div>`;
               })
               .join("")
@@ -463,6 +490,25 @@ function renderClients() {
 function setClientFilter(f) {
   clientFilter = f;
   renderClients();
+}
+
+async function delClient(clientId) {
+  const client = state.clients.find((c) => c.id === clientId);
+  if (
+    !confirm(
+      `¿Eliminar a "${client?.full_name}"? Se conservarán sus préstamos en el historial.`,
+    )
+  )
+    return;
+  const { error } = await deleteClient(clientId, state.token);
+  if (error) {
+    showToast("Error al eliminar cliente");
+    return;
+  }
+  setState({ clients: state.clients.filter((c) => c.id !== clientId) });
+  renderClients();
+  renderDashboard();
+  showToast("Cliente eliminado");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -776,14 +822,29 @@ function renderNuevo() {
   document.getElementById("screen-nuevo").innerHTML = `
     <div class="card form-sec">
       <div class="card-title">Datos del cliente</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px">
+        <div id="new-photo-preview" style="width:64px;height:64px;border-radius:50%;background:var(--s2);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:24px">👤</div>
+        <label style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;font-size:13px;cursor:pointer;color:var(--text);flex:1;text-align:center">
+          📷 Agregar foto
+          <input type="file" accept="image/*" capture="environment" id="new-photo-input" style="display:none" onchange="window._app.handleNewPhoto(event)">
+        </label>
+      </div>
       <div class="fg"><label class="fl">Nombre completo</label><input class="fi" id="f-name" placeholder="Juan Pérez"></div>
       <div class="fg"><label class="fl">Cédula</label><input class="fi" id="f-id" placeholder="123456789" inputmode="numeric"></div>
       <div class="fg"><label class="fl">Teléfono</label><input class="fi" id="f-tel" placeholder="300 000 0000" inputmode="numeric"></div>
       <div class="fg"><label class="fl">Dirección (opcional)</label><input class="fi" id="f-addr" placeholder="Calle 1 # 2-3"></div>
+      <div class="fg"><label class="fl">Notas del cliente</label><input class="fi" id="f-notes" placeholder="Observaciones adicionales..."></div>
     </div>
     <div class="card form-sec">
       <div class="card-title">Condiciones del préstamo</div>
       <div class="fg"><label class="fl">Monto ($)</label><input class="fi" id="f-amount" type="number" value="200000" oninput="window._app.updatePreview()"></div>
+      <div class="fg">
+        <label class="fl">Interés (%)</label>
+        <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;color:var(--muted);font-size:15px;display:flex;justify-content:space-between;align-items:center">
+          <span style="color:var(--text)">20%</span>
+          <span style="font-size:11px;letter-spacing:.5px">FIJO</span>
+        </div>
+      </div>
       <div class="fg">
         <label class="fl">Modalidad de cobro</label>
         <select class="fs" id="f-mode" onchange="window._app.updatePreview()">
@@ -794,6 +855,7 @@ function renderNuevo() {
       </div>
       <div class="fg"><label class="fl">Semanas de plazo</label><input class="fi" id="f-weeks" type="number" value="4" oninput="window._app.updatePreview()"></div>
       <div class="fg"><label class="fl">Fecha de inicio</label><input class="fi" id="f-date" type="date" value="${today()}"></div>
+      <div class="fg"><label class="fl">Notas del préstamo</label><input class="fi" id="f-loan-notes" placeholder="Condiciones especiales, garantías..."></div>
     </div>
     <div class="card">
       <div class="card-title">Resumen del préstamo</div>
@@ -809,10 +871,25 @@ function renderNuevo() {
   updatePreview();
 }
 
+// Buffer para la foto del nuevo cliente
+let _newClientPhoto = null;
+
+function handleNewPhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  compressImage(file, 400, 400, 0.65)
+    .then((compressed) => {
+      _newClientPhoto = compressed;
+      const preview = document.getElementById("new-photo-preview");
+      if (preview)
+        preview.innerHTML = `<img src="${compressed}" style="width:100%;height:100%;object-fit:cover">`;
+    })
+    .catch(() => showToast("Error al procesar imagen"));
+}
+
 function updatePreview() {
-  // Definimos el interés directamente aquí
-  const rate = 20;
   const amount = parseFloat(document.getElementById("f-amount")?.value) || 0;
+  const rate = 20; // fijo, no editable por el usuario
   const mode = document.getElementById("f-mode")?.value || "daily";
   const weeks = parseInt(document.getElementById("f-weeks")?.value) || 4;
   const intAmt = (amount * rate) / 100;
@@ -821,7 +898,7 @@ function updatePreview() {
   const cuota = nc > 0 ? total / nc : 0;
   if (document.getElementById("pv-total")) {
     document.getElementById("pv-total").textContent = fmt(total);
-    document.getElementById("pv-int").textContent = fmt(intAmt);mn 
+    document.getElementById("pv-int").textContent = fmt(intAmt);
     document.getElementById("pv-cuota").textContent = fmt(cuota);
     document.getElementById("pv-n").textContent = nc;
   }
@@ -833,8 +910,10 @@ async function crearPrestamo() {
   const idNum = document.getElementById("f-id").value.trim();
   const phone = document.getElementById("f-tel").value.trim();
   const addr = document.getElementById("f-addr")?.value.trim() || "";
+  const notes = document.getElementById("f-notes")?.value.trim() || "";
+  const lnotes = document.getElementById("f-loan-notes")?.value.trim() || "";
   const amount = parseFloat(document.getElementById("f-amount").value);
-  const rate = 20;
+  const rate = 20; // fijo al 20%, no modificable por el usuario
   const mode = document.getElementById("f-mode").value;
   const weeks = parseInt(document.getElementById("f-weeks").value);
   const date = document.getElementById("f-date").value;
@@ -847,10 +926,6 @@ async function crearPrestamo() {
     showToast("Monto inválido");
     return;
   }
-  if (!rate && rate !== 0) {
-    showToast("Interés inválido");
-    return;
-  }
 
   btn.disabled = true;
   btn.textContent = "Guardando...";
@@ -860,6 +935,8 @@ async function crearPrestamo() {
     id_number: idNum,
     phone,
     address: addr,
+    notes,
+    photo: _newClientPhoto || null,
   };
   const loanData = {
     amount,
@@ -867,6 +944,7 @@ async function crearPrestamo() {
     collection_mode: mode,
     weeks,
     start_date: date,
+    notes: lnotes,
   };
 
   if (navigator.onLine) {
@@ -938,6 +1016,7 @@ async function crearPrestamo() {
     showToast("Guardado offline — se sincronizará al conectarse");
   }
 
+  _newClientPhoto = null;
   renderNuevo();
   renderDashboard();
   btn.disabled = false;
@@ -1183,12 +1262,13 @@ async function delExpense(id) {
 }
 
 // ══════════════════════════════════════════════════════════
-// RESUMEN (admin) — con filtro por rango de fechas
+// RESUMEN — disponible para todos los roles
 // ══════════════════════════════════════════════════════════
 let _rangeData = null;
 
 function renderResumen() {
-  const { loans, payments, expenses } = state;
+  const { loans, payments, expenses, capitalBase } = state;
+  const isAdmin = state.user?.role === "admin";
   let cap = 0,
     ints = 0,
     totalDebe = 0,
@@ -1215,12 +1295,54 @@ function renderResumen() {
   });
 
   const totalExp = expenses.reduce((s, e) => s + parseFloat(e.amount), 0);
+  const base = parseFloat(capitalBase) || 20_000_000;
+  // Dinero base + lo recaudado - lo prestado actualmente - gastos
+  const capitalActual = base + rec - cap - totalExp;
 
-  // Default range: first day of current month to today
   const firstOfMonth = today().slice(0, 7) + "-01";
   const todayStr = today();
 
+  const adminSection = isAdmin
+    ? `
+    <div class="card">
+      <div class="card-title">Cartera por modalidad</div>
+      ${Object.entries(byMode)
+        .map(
+          ([k, v]) => `
+        <div class="sum-row"><span class="sl">${modeLabel(k)}</span><span class="sv">${v.c} préstamos · ${fmt(v.t)}</span></div>`,
+        )
+        .join("")}
+    </div>
+    <div class="card">
+      <div class="card-title">Provisión de cartera (5%)</div>
+      <div class="sum-row"><span class="sl">Reserva recomendada</span><span class="sv c-red">${fmt(totalDebe * 0.05)}</span></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">Reserva del 5% del total para cubrir posibles pérdidas por deudores incobrables.</p>
+    </div>`
+    : "";
+
+  const capitalSection = isAdmin
+    ? `
+    <div class="card">
+      <div class="card-title">💰 Capital base y posición actual</div>
+      <div class="sum-row"><span class="sl">Capital base inicial</span>     <span class="sv c-blue">${fmt(base)}</span></div>
+      <div class="sum-row"><span class="sl">+ Total recaudado</span>         <span class="sv c-green">+${fmt(rec)}</span></div>
+      <div class="sum-row"><span class="sl">− Capital prestado activo</span> <span class="sv c-orange">−${fmt(cap)}</span></div>
+      <div class="sum-row"><span class="sl">− Gastos operativos</span>       <span class="sv c-red">−${fmt(totalExp)}</span></div>
+      <div class="sum-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">
+        <span class="sl" style="font-weight:700;color:var(--text)">= Capital disponible ahora</span>
+        <span class="sv ${capitalActual >= 0 ? "c-green" : "c-red"}" style="font-size:17px;font-weight:700">${fmt(capitalActual)}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <label class="fl" style="white-space:nowrap">Capital base ($):</label>
+        <input class="fi" id="capital-base-inp" type="number" value="${base}" style="flex:1;padding:8px 12px;font-size:14px">
+        <button onclick="window._app.saveCapitalBase()" style="background:var(--accent);color:#000;border:none;border-radius:10px;padding:9px 14px;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap">Guardar</button>
+      </div>
+    </div>`
+    : "";
+
   document.getElementById("screen-resumen").innerHTML = `
+    ${capitalSection}
+
     <div class="card">
       <div class="card-title">Resumen financiero — Total acumulado</div>
       <div class="sum-row"><span class="sl">Capital total prestado</span> <span class="sv">${fmt(cap)}</span></div>
@@ -1234,23 +1356,8 @@ function renderResumen() {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Cartera por modalidad</div>
-      ${Object.entries(byMode)
-        .map(
-          ([k, v]) => `
-        <div class="sum-row"><span class="sl">${modeLabel(k)}</span><span class="sv">${v.c} préstamos · ${fmt(v.t)}</span></div>`,
-        )
-        .join("")}
-    </div>
+    ${adminSection}
 
-    <div class="card">
-      <div class="card-title">Provisión de cartera (5%)</div>
-      <div class="sum-row"><span class="sl">Reserva recomendada</span><span class="sv c-red">${fmt(totalDebe * 0.05)}</span></div>
-      <p style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">Reserva del 5% del total para cubrir posibles pérdidas por deudores incobrables.</p>
-    </div>
-
-    <!-- FILTRO POR RANGO DE FECHAS -->
     <div class="card">
       <div class="card-title">📅 Resumen por rango de fechas</div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -1263,7 +1370,7 @@ function renderResumen() {
           <input class="fi" type="date" id="range-to" value="${todayStr}">
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <div class="filter-row" style="margin-bottom:14px">
         <button class="chip active" onclick="window._app.setQuickRange('month',this)">Este mes</button>
         <button class="chip" onclick="window._app.setQuickRange('week',this)">Esta semana</button>
         <button class="chip" onclick="window._app.setQuickRange('quarter',this)">Trimestre</button>
@@ -1273,9 +1380,24 @@ function renderResumen() {
       <div id="range-results" style="margin-top:16px"></div>
     </div>
   `;
-
-  // Auto-cargar el rango por defecto
   loadRangeSummary();
+}
+
+async function saveCapitalBase() {
+  const val = parseFloat(document.getElementById("capital-base-inp")?.value);
+  if (!val || val <= 0) {
+    showToast("Valor inválido");
+    return;
+  }
+  const { error } = await setConfig("capital_base", val, state.token);
+  if (error) {
+    showToast("Error al guardar: " + error);
+    return;
+  }
+  setState({ capitalBase: val });
+  localStorage.setItem("gtg_capital_base", val);
+  showToast("Capital base actualizado ✓");
+  renderResumen();
 }
 
 function setQuickRange(preset, el) {
@@ -1536,11 +1658,13 @@ window._app = {
   togglePin,
   renderClients,
   setClientFilter,
+  delClient,
   openClientDetail,
   goNewLoan,
   saveClientEdit,
   handlePhoto,
   removePhoto,
+  handleNewPhoto,
   updatePreview,
   crearPrestamo,
   addPayment,
@@ -1553,6 +1677,7 @@ window._app = {
   desactivarUsuario,
   setQuickRange,
   loadRangeSummary,
+  saveCapitalBase,
   closeModal,
 };
 

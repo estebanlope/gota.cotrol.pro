@@ -1,100 +1,126 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0d1117">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Gota Control</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/src/styles/main.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Gota Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/src/styles/main.css">
 </head>
+
 <body>
 
-<!-- LOGIN -->
-<div id="login-screen">
-  <div class="login-logo">gota<span>.</span>control</div>
-  <div class="login-sub">Sistema de control de préstamos</div>
-  <div class="login-box">
-    <div class="fg">
-      <label class="fl">Usuario</label>
-      <input class="l-inp" id="l-user" type="text" placeholder="admin" autocomplete="username" autocapitalize="none">
+  <!-- LOGIN -->
+  <div id="login-screen">
+    <div class="login-logo">gota<span>.</span>control</div>
+    <div class="login-sub">Sistema de control de préstamos</div>
+    <div class="login-box">
+      <div class="fg">
+        <label class="fl">Usuario</label>
+        <input class="l-inp" id="l-user" type="text" placeholder="admin" autocomplete="username" autocapitalize="none">
+      </div>
+      <div class="fg">
+        <label class="fl">PIN (4 dígitos)</label>
+        <div class="pin-wrap">
+          <input class="l-inp pin-inp" id="l-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••"
+            pattern="[0-9]{4}" autocomplete="current-password">
+          <button class="pin-toggle" id="pin-toggle" onclick="togglePin()">👁</button>
+        </div>
+      </div>
+      <div class="l-err" id="l-err"></div>
+      <button class="l-btn" id="l-btn" onclick="window._app.login()">Ingresar</button>
     </div>
-    <div class="fg">
-      <label class="fl">PIN (4 dígitos)</label>
-      <div class="pin-wrap">
-        <input class="l-inp pin-inp" id="l-pin" type="password" inputmode="numeric"
-               maxlength="4" placeholder="••••" pattern="[0-9]{4}" autocomplete="current-password">
-        <button class="pin-toggle" id="pin-toggle" onclick="togglePin()">👁</button>
+  </div>
+
+  <!-- APP SHELL -->
+  <div id="app" class="hidden">
+
+    <!-- TOP BAR -->
+    <div id="topbar">
+      <div class="logo">gota<span>.</span>control</div>
+      <div class="topbar-r">
+        <div class="sync-pill" id="sync-pill">● En línea</div>
+        <div class="role-badge" id="role-badge"></div>
+        <button class="logout-btn" onclick="window._app.logout()">Salir</button>
       </div>
     </div>
-    <div class="l-err" id="l-err"></div>
-    <button class="l-btn" id="l-btn" onclick="window._app.login()">Ingresar</button>
+
+    <!-- SCREENS CONTAINER -->
+    <div id="screens">
+      <div class="screen active" id="screen-dashboard"></div>
+      <div class="screen" id="screen-clients"></div>
+      <div class="screen" id="screen-nuevo"></div>
+      <div class="screen" id="screen-expenses"></div>
+      <div class="screen" id="screen-resumen"></div>
+      <div class="screen" id="screen-usuarios"></div>
+    </div>
+
+    <!-- BOTTOM NAV -->
+    <nav id="nav">
+      <button class="nav-btn active" id="nb-dash" data-screen="dashboard">
+        <svg viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
+        Inicio
+      </button>
+      <button class="nav-btn" id="nb-clients" data-screen="clients">
+        <svg viewBox="0 0 24 24">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+        Clientes
+      </button>
+      <button class="nav-btn" id="nb-nuevo" data-screen="nuevo">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 8v8M8 12h8" />
+        </svg>
+        Nuevo
+      </button>
+      <button class="nav-btn" id="nb-exp" data-screen="expenses">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+        </svg>
+        Gastos
+      </button>
+      <button class="nav-btn" id="nb-res" data-screen="resumen">
+        <svg viewBox="0 0 24 24">
+          <path d="M3 3v18h18" />
+          <path d="m19 9-5 5-4-4-3 3" />
+        </svg>
+        Resumen
+      </button>
+      <button class="nav-btn admin-only hide" id="nb-usr" data-screen="usuarios">
+        <svg viewBox="0 0 24 24">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+        Usuarios
+      </button>
+    </nav>
   </div>
-</div>
 
-<!-- APP SHELL -->
-<div id="app" class="hidden">
-
-  <!-- TOP BAR -->
-  <div id="topbar">
-    <div class="logo">gota<span>.</span>control</div>
-    <div class="topbar-r">
-      <div class="sync-pill" id="sync-pill">● En línea</div>
-      <div class="role-badge" id="role-badge"></div>
-      <button class="logout-btn" onclick="window._app.logout()">Salir</button>
+  <!-- MODAL -->
+  <div id="overlay" onclick="if(event.target===this)window._app.closeModal()">
+    <div id="modal">
+      <div class="handle"></div>
+      <div id="modal-content"></div>
     </div>
   </div>
 
-  <!-- SCREENS CONTAINER -->
-  <div id="screens">
-    <div class="screen active" id="screen-dashboard"></div>
-    <div class="screen"        id="screen-clients"></div>
-    <div class="screen"        id="screen-nuevo"></div>
-    <div class="screen"        id="screen-expenses"></div>
-    <div class="screen"        id="screen-resumen"></div>
-    <div class="screen"        id="screen-usuarios"></div>
-  </div>
-
-  <!-- BOTTOM NAV -->
-  <nav id="nav">
-    <button class="nav-btn active" id="nb-dash" data-screen="dashboard">
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      Inicio
-    </button>
-    <button class="nav-btn" id="nb-clients" data-screen="clients">
-      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      Clientes
-    </button>
-    <button class="nav-btn" id="nb-nuevo" data-screen="nuevo">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
-      Nuevo
-    </button>
-    <button class="nav-btn" id="nb-exp" data-screen="expenses">
-      <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      Gastos
-    </button>
-    <button class="nav-btn admin-only hide" id="nb-res" data-screen="resumen">
-      <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-      Resumen
-    </button>
-    <button class="nav-btn admin-only hide" id="nb-usr" data-screen="usuarios">
-      <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      Usuarios
-    </button>
-  </nav>
-</div>
-
-<!-- MODAL -->
-<div id="overlay" onclick="if(event.target===this)window._app.closeModal()">
-  <div id="modal">
-    <div class="handle"></div>
-    <div id="modal-content"></div>
-  </div>
-</div>
-
-<script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/main.js"></script>
 </body>
+
 </html>
