@@ -156,6 +156,14 @@ function togglePin() {
 // ══════════════════════════════════════════════════════════
 // DATA LOADING
 // ══════════════════════════════════════════════════════════
+const appTitle = document.querySelector("#topbar .logo");
+
+if (appTitle) {
+  appTitle.addEventListener("click", () => {
+    // Recarga total de la página ignorando la caché
+    window.location.reload(true);
+  });
+}
 async function loadAllData(offlineOnly = false) {
   // Siempre cargar caché primero
   const [cachedLoans, cachedPayments, cachedClients, cachedExpenses] =
@@ -387,7 +395,7 @@ function renderDashboard() {
 // ══════════════════════════════════════════════════════════
 // CLIENTS / DEUDORES
 // ══════════════════════════════════════════════════════════
-let clientFilter = "all";
+let clientFilter = "pending";
 
 function renderClients() {
   const { loans, payments, clients } = state;
@@ -414,7 +422,7 @@ function renderClients() {
         <input type="text" id="client-search" placeholder="Buscar cliente..." oninput="window._app.renderClients()" value="${q}">
       </div>
       <div class="filter-row">
-        ${["all", "pending", "active", "paid", "overdue"]
+        ${["pending", "active", "paid", "overdue", "all"]
           .map(
             (f) => `
           <div class="chip ${clientFilter === f ? "active" : ""}" onclick="window._app.setClientFilter('${f}',this)">
@@ -1391,11 +1399,11 @@ function renderResumen() {
       <div class="sum-row"><span class="sl">− Capital activo (en la calle)</span><span class="sv c-orange">−${fmt(capitalActivo)}</span></div>
       <div class="sum-row"><span class="sl">+ Intereses recuperados</span>       <span class="sv c-green">+${fmt(interesRecuperado)}</span></div>
       <div class="sum-row"><span class="sl">− Gastos operativos</span>           <span class="sv c-red">−${fmt(totalExp)}</span></div>
-      <div class="sum-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px">
+      <div class="sum-row" style="margin-top:4px;padding-top:4px">
         <span class="sl" style="font-weight:700;color:var(--text)">= Capital disponible ahora</span>
         <span class="sv ${capitalDisponible >= 0 ? "c-green" : "c-red"}" style="font-size:17px;font-weight:700">${fmt(capitalDisponible)}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;">
         <label class="fl" style="white-space:nowrap">Capital base ($):</label>
         <input class="fi" id="capital-base-inp" type="number" value="${base}" style="flex:1;padding:8px 12px;font-size:14px">
         <button onclick="window._app.saveCapitalBase()" style="background:var(--accent);color:#000;border:none;border-radius:10px;padding:9px 14px;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap">Guardar</button>
