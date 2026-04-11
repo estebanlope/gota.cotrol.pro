@@ -269,6 +269,7 @@ export async function createLoan(
     collection_mode,
     weeks,
     start_date,
+    due_date,
     notes,
   },
   token,
@@ -281,6 +282,7 @@ export async function createLoan(
     p_collection_mode: collection_mode,
     p_weeks: weeks,
     p_start_date: start_date,
+    p_due_date: due_date,
     p_notes: notes || null,
   });
   return {
