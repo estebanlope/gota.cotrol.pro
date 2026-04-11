@@ -35,11 +35,13 @@ export function statusOf(loan, payments) {
 }
 
 export const STATUS_LABEL = {
-  paid:    '✅ Pagado',
-  active:  '🔄 En curso',
-  pending: '⏳ Sin iniciar',
-  overdue: '⚠️ Mora'
-}
+  paid: "✅ Pagado",
+  active: "🔄 En curso",
+  clientsActive: "✅ Activo",
+  clientsInactive: "📁 Inactivo",
+  pending: "⏳ Sin iniciar",
+  overdue: "⚠️ Mora",
+};
 
 export const STATUS_CLASS = {
   paid:    'b-paid',

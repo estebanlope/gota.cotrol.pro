@@ -164,6 +164,7 @@ if (appTitle) {
     window.location.reload(true);
   });
 }
+
 async function loadAllData(offlineOnly = false) {
   // Siempre cargar caché primero
   const [cachedLoans, cachedPayments, cachedClients, cachedExpenses] =
@@ -301,6 +302,7 @@ function renderScreen(name) {
 
   const renderers = {
     dashboard: renderDashboard,
+    loans: renderLoans,
     clients: renderClients,
     nuevo: renderNuevo,
     expenses: renderExpenses,
@@ -393,101 +395,90 @@ function renderDashboard() {
 }
 
 // ══════════════════════════════════════════════════════════
-// CLIENTS / DEUDORES
+// LOANS / PRESTAMOS
 // ══════════════════════════════════════════════════════════
-let clientFilter = "pending";
+let loansFilter = "pending";
 
-function renderClients() {
+function renderLoans() {
   const { loans, payments, clients } = state;
   const isAdmin = state.user?.role === "admin";
   const q = (
-    document.getElementById("client-search")?.value || ""
+    document.getElementById("loans-search")?.value || ""
   ).toLowerCase();
 
-  const filtered = clients.filter((c) => {
-    const match =
-      c.full_name.toLowerCase().includes(q) || (c.id_number || "").includes(q);
-    if (!match) return false;
-    if (clientFilter === "all") return true;
-    const clientLoans = loans.filter((l) => l.client_id === c.id);
-    if (!clientLoans.length) return clientFilter === "pending";
-    return clientLoans.some((l) => statusOf(l, payments) === clientFilter);
+  const filteredLoans = loans.filter((l) => {
+    const client = clients.find((c) => c.id === l.client_id);
+    if (!client) return false;
+
+    // Búsqueda por nombre o cédula
+    const matchSearch =
+      client.full_name.toLowerCase().includes(q) ||
+      (client.id_number || "").includes(q);
+
+    // Obtener estado real del préstamo usando tu función statusOf
+    const st = statusOf(l, payments);
+
+    let matchFilter = false;
+    if (!matchSearch) return false;
+    if (loansFilter === "all") {
+      return true;
+    } else {
+      matchFilter = (st === loansFilter);
+    }
+    return matchSearch && matchFilter;
+  });
+
+  // 3. Ordenar: Lo más urgente arriba (Overdue > Active > Paid)
+  filteredLoans.sort((a, b) => {
+    const stA = statusOf(a, payments);
+    const stB = statusOf(b, payments);
+    if (stA === "overdue" && stB !== "overdue") return -1;
+    if (stA !== "overdue" && stB === "overdue") return 1;
+    return new Date(a.due_date) - new Date(b.due_date);
   });
 
   // Keep search + filters OUTSIDE the scrollable area via position:sticky
-  document.getElementById("screen-clients").innerHTML = `
-    <div class="clients-sticky">
+  document.getElementById("screen-loans").innerHTML = `
+    <div class="loans-sticky">
       <div class="search-wrap">
         <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="client-search" placeholder="Buscar cliente..." oninput="window._app.renderClients()" value="${q}">
+        <input type="text" id="loan-search" placeholder="Buscar préstamo..." oninput="window._app.renderLoans()" value="${q}">
       </div>
       <div class="filter-row">
         ${["pending", "active", "paid", "overdue", "all"]
           .map(
             (f) => `
-          <div class="chip ${clientFilter === f ? "active" : ""}" onclick="window._app.setClientFilter('${f}',this)">
+          <div class="chip ${loansFilter === f ? "active" : ""}" onclick="window._app.setLoanFilter('${f}',this)">
             ${f === "all" ? "Todos" : STATUS_LABEL[f]}
           </div>`,
           )
           .join("")}
       </div>
     </div>
-    <div class="clients-list-wrap">
+    
+    <div class="loans-list-wrap">
       ${
-        !filtered.length
-          ? `<div class="empty"><div class="ei">📋</div><p>No hay clientes.<br>Crea uno desde <b>Nuevo</b>.</p></div>`
-          : filtered
-              .map((c) => {
-                const cLoans = loans.filter((l) => l.client_id === c.id);
-                const totalDebe = cLoans.reduce(
-                  (s, l) =>
-                    s +
-                    parseFloat(l.amount) *
-                      (1 + parseFloat(l.interest_rate) / 100),
-                  0,
-                );
-                const totalRec = cLoans.reduce(
-                  (s, l) =>
-                    s +
-                    payments
-                      .filter((p) => p.loan_id === l.id)
-                      .reduce((ss, p) => ss + parseFloat(p.amount), 0),
-                  0,
-                );
+        !filteredLoans.length
+          ? `<div class="empty"><div class="ei">📋</div><p>No hay préstamos.<br>Crea uno desde <b>Nuevo</b>.</p></div>`
+          : filteredLoans
+              .map((l) => {
+                const client = clients.find((c) => c.id === l.client_id);
+                const st = statusOf(l, payments);
+
+                // Cálculos financieros
+                const totalDebe =
+                  parseFloat(l.amount) *
+                  (1 + parseFloat(l.interest_rate) / 100);
+                const totalRec = payments
+                  .filter((p) => p.loan_id === l.id)
+                  .reduce((acc, p) => acc + parseFloat(p.amount), 0);
+                const saldo = totalDebe - totalRec;
                 const pct =
                   totalDebe > 0
                     ? Math.min(100, Math.round((totalRec / totalDebe) * 100))
                     : 0;
-                const st = cLoans.length
-                  ? statusOf(cLoans[0], payments)
-                  : "pending";
-                const color = {
-                  paid: "#00e5a0",
-                  overdue: "#ff4444",
-                  active: "#0099ff",
-                  pending: "#ffb347",
-                }[st];
-                const photoHtml = c.photo
-                  ? `<img src="${c.photo}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid var(--border)">`
-                  : `<div style="width:40px;height:40px;border-radius:50%;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👤</div>`;
-                return `
-          <div class="dc">
-            <div class="dc-top" onclick="window._app.openClientDetail('${c.id}')">
-              <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
-                ${photoHtml}
-                <div style="min-width:0">
-                  <div class="dc-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.full_name}</div>
-                  <div class="dc-sub">${c.id_number || "Sin cédula"} · ${cLoans.length} préstamo${cLoans.length !== 1 ? "s" : ""}</div>
-                </div>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-                <div class="badge ${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</div>
-                ${isAdmin ? `<button onclick="event.stopPropagation();window._app.delClient('${c.id}')" style="background:rgba(255,68,68,.1);color:var(--red);border:none;border-radius:6px;padding:4px 7px;font-size:11px;cursor:pointer">🗑</button>` : ""}
-              </div>
-            </div>
-            <div class="mini-bar" onclick="window._app.openClientDetail('${c.id}')"><div class="mini-fill" style="width:${pct}%;background:${color}"></div></div>
-            <div class="dc-row" onclick="window._app.openClientDetail('${c.id}')"><span>Recaudado: <b>${fmt(totalRec)}</b></span><span>Saldo: <b>${fmt(totalDebe - totalRec)}</b></span></div>
-          </div>`;
+
+                return renderLoanCard(l, client, st, totalRec, saldo, pct);
               })
               .join("")
       }
@@ -495,13 +486,380 @@ function renderClients() {
   `;
 }
 
+function renderLoanCard(loan, client, st, totalRec, saldo, pct) {
+  const color = {
+    paid: "#00e5a0",
+    overdue: "#ff4444",
+    active: "#0099ff",
+    pending: "#ffb347",
+  }[st];
+
+  return `
+    <div class="dc" style="border-left: 4px solid ${color}">
+      <div class="dc-top" onclick="window._app.openLoanDetail('${loan.id}')" style="cursor:pointer">
+        <div style="flex:1">
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:1px">Préstamo #${loan.id.slice(0, 5)}</div>
+          <div class="dc-name">${client.full_name}</div>
+          <div style="font-size:12px; color:var(--text)">Vence: <b>${new Date(loan.due_date).toLocaleDateString()}</b></div>
+        </div>
+        <div style="text-align:right">
+          <div class="badge ${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</div>
+          <div style="font-size:16px; font-weight:bold; margin-top:5px; color:var(--p1)">${fmt(saldo)}</div>
+        </div>
+      </div>
+
+      <div style="margin: 10px 0 5px 0; background: var(--s2); height: 6px; border-radius: 3px; overflow: hidden;">
+        <div style="width: ${pct}%; background: ${color}; height: 100%; transition: width 0.3s ease;"></div>
+      </div>
+
+      <div class="dc-row" style="font-size:11px">
+        <span>Capital: ${fmt(loan.amount)}</span>
+        <span>Interés: ${loan.interest_rate}%</span>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:12px">
+        <button class="btn-p" style="flex:2; padding:8px" onclick="window._app.openAddPayment('${loan.id}')">
+          💵 Registrar Abono
+        </button>
+        <button class="btn-s" style="flex:1; background:none; border:1px solid var(--border)" onclick="window._app.openClientDetail('${client.id}')">
+          👤 Perfil
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function setLoanFilter(f) {
+  loansFilter = f;
+  renderLoans();
+}
+
+function openLoanDetail(loanId) {
+  // 1. Obtener datos del préstamo y sus pagos
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan) return;
+
+  const loanPayments = state.payments.filter(p => p.loan_id === loanId);
+  
+  // 2. Cálculos financieros
+  const totalDebe = parseFloat(loan.amount) * (1 + parseFloat(loan.interest_rate) / 100);
+  const totalRec = loanPayments.reduce((acc, p) => acc + parseFloat(p.amount), 0);
+  const saldo = totalDebe - totalRec;
+  const pct = Math.min(Math.round((totalRec / totalDebe) * 100), 100);
+  const st = statusOf(loan, state.payments);
+
+  // 3. Construir el HTML del Modal
+  document.getElementById("modal-content").innerHTML = `
+    <div class="modal-title">Detalle del Préstamo</div>
+    <div class="modal-sub">ID: ${loan.id.slice(0, 8).toUpperCase()}</div>
+
+    <div style="background:var(--s2); border-radius:20px; padding:20px; margin-top:20px; border:1px solid var(--border)">
+      <div style="text-align:center; margin-bottom:20px">
+        <div style="font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:1px">Saldo Pendiente</div>
+        <div style="font-size:32px; font-weight:800; color:var(--p1)">${fmt(saldo)}</div>
+        <div class="badge ${STATUS_CLASS[st]}" style="margin-top:8px">${STATUS_LABEL[st]}</div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; border-top:1px solid var(--border); padding-top:15px">
+        <div>
+          <label style="font-size:10px; color:var(--muted); text-transform:uppercase">Capital Inicial</label>
+          <div style="font-weight:bold; font-size:15px">${fmt(loan.amount)}</div>
+        </div>
+        <div>
+          <label style="font-size:10px; color:var(--muted); text-transform:uppercase">Interés (${loan.interest_rate}%)</label>
+          <div style="font-weight:bold; font-size:15px">${fmt(totalDebe - loan.amount)}</div>
+        </div>
+        <div>
+          <label style="font-size:10px; color:var(--muted); text-transform:uppercase">Total a Pagar</label>
+          <div style="font-weight:bold; font-size:15px">${fmt(totalDebe)}</div>
+        </div>
+        <div>
+          <label style="font-size:10px; color:var(--muted); text-transform:uppercase">Fecha Vence</label>
+          <div style="font-weight:bold; font-size:15px">${loan.due_date ? new Date(loan.due_date + "T12:00:00").toLocaleDateString() : "N/A"}</div>
+        </div>
+      </div>
+
+      <div style="margin-top:20px">
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:5px">
+          <span style="color:var(--muted)">Progreso de recaudación</span>
+          <span style="font-weight:bold">${pct}%</span>
+        </div>
+        <div style="background:var(--s1); height:8px; border-radius:4px; overflow:hidden">
+          <div style="width:${pct}%; background:var(--p1); height:100%; transition: width 0.5s ease"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-lbl" style="margin:25px 0 12px 0; display:flex; justify-content:space-between; align-items:center">
+      <span>Historial de Abonos</span>
+      <span style="font-size:11px; color:var(--muted)">${loanPayments.length} pagos</span>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:10px; max-height:250px; overflow-y:auto; padding-right:5px">
+      ${
+        loanPayments.length === 0
+          ? `<div style="text-align:center; padding:20px; color:var(--muted); font-size:13px; background:var(--s1); border-radius:12px; border:1px dashed var(--border)">No hay abonos registrados todavía.</div>`
+          : loanPayments
+              .map(
+                (p) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 15px; background:var(--s1); border-radius:12px; border:1px solid var(--border)">
+              <div>
+                <div style="font-weight:700; font-size:14px; color:var(--text)">${fmt(p.amount)}</div>
+                <div style="font-size:11px; color:var(--muted)">${new Date(p.created_at).toLocaleDateString()}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:10px; color:var(--muted); text-transform:uppercase">Método</div>
+                <div style="font-size:11px; font-weight:600">${p.payment_method || "Efectivo"}</div>
+              </div>
+            </div>
+          `,
+              )
+              .join("")
+      }
+    </div>
+    
+    <button class="btn-s" style="width:100%; margin-top:20px; background:none; border:1px solid var(--border)" onclick="window._app.closeModal()">
+      Cerrar Detalle
+    </button>
+  `;
+
+  openModal();
+}
+
+function openAddPayment(loanId) {
+  const loan = state.loans.find((l) => l.id === loanId);
+  const client = state.clients.find((c) => c.id === loan.client_id);
+
+  // 1. Cálculos de estado actual
+  const loanPayments = state.payments.filter((p) => p.loan_id === loanId);
+  const totalDebe =
+    parseFloat(loan.amount) * (1 + parseFloat(loan.interest_rate) / 100);
+  const totalRec = loanPayments.reduce(
+    (acc, p) => acc + parseFloat(p.amount),
+    0,
+  );
+  const saldoActual = totalDebe - totalRec;
+  const pct = Math.min(Math.round((totalRec / totalDebe) * 100), 100);
+  const st = statusOf(loan, state.payments);
+  const color = {
+    paid: "#00e5a0",
+    overdue: "#ff4444",
+    active: "#0099ff",
+    pending: "#ffb347",
+  }[st];
+
+  document.getElementById("modal-content").innerHTML = `
+    <div class="modal-title">Registrar Abono</div>
+    <div class="modal-sub">Cliente: ${client.full_name}</div>
+
+    <div style="background:var(--s2); border-radius:16px; padding:16px; margin-top:15px; border:1px solid var(--border)">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px">
+        <div>
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase">Deuda Total</div>
+          <div style="font-size:18px; font-weight:bold; color:var(--text)">${fmt(totalDebe)}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px; color:var(--muted); text-transform:uppercase">Saldo Restante</div>
+          <div style="font-size:18px; font-weight:bold; color:var(--p1)">${fmt(saldoActual)}</div>
+        </div>
+      </div>
+
+      <div style="background:var(--s1); height:6px; border-radius:3px; overflow:hidden; margin-bottom:12px">
+        <div style="width:${pct}%; background:${color}; height:100%"></div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; font-size:11px; color:var(--muted)">
+        <span>Capital: <b>${fmt(loan.amount)}</b></span>
+        <span style="text-align:right">Interés: <b>${loan.interest_rate}%</b></span>
+      </div>
+    </div>
+
+    <div style="margin-top:20px">
+      <div class="fg">
+        <label class="fl">Monto del Abono</label>
+        <input type="number" id="pay-amount" class="fi" 
+               placeholder="¿Cuánto paga hoy?" 
+               style="font-size:24px; font-weight:800; height:60px; text-align:center; color:var(--p1)">
+      </div>
+
+      <div class="fg" style="margin-top:15px">
+        <label class="fl">Fecha de Recaudo</label>
+        <input type="date" id="pay-date" class="fi" 
+               value="${new Date().toISOString().split("T")[0]}">
+      </div>
+
+      <div class="fg" style="margin-top:15px">
+        <label class="fl">Método de Pago</label>
+        <select id="pay-method" class="fi">
+          <option value="cash">Efectivo</option>
+          <option value="transfer">Transferencia / Nequi</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top:25px; display:flex; gap:10px">
+      <button class="btn-p" style="flex:2; height:52px; font-size:16px; font-weight:bold" onclick="window._app.savePayment('${loan.id}')">
+        Confirmar Pago
+      </button>
+      <button class="btn-s" style="flex:1; background:none; border:1px solid var(--border)" onclick="window._app.closeModal()">
+        Cancelar
+      </button>
+    </div>
+  `;
+
+  openModal();
+  // Foco automático en el monto para agilizar el cobro
+  setTimeout(() => document.getElementById("pay-amount").focus(), 300);
+}
+
+// ══════════════════════════════════════════════════════════
+// CLIENTS / DEUDORES
+// ══════════════════════════════════════════════════════════
+let clientsFilter = "all";
+
+function renderClientChips() {
+  const container = document.getElementById("clients-filter-container");
+  if (!container) return;
+
+  const filters = [
+    { id: "all", label: "👥 Todos" },
+    { id: "clientsActive", label: "✅ Activos" },
+    { id: "clientsInactive", label: "⏳ Inactivos" },
+  ];
+
+  container.innerHTML = filters
+    .map(
+      (f) => `
+    <div class="chip ${clientsFilter === f.id ? "active" : ""}" 
+         onclick="window._app.setClientFilter('${f.id}')">
+      ${f.label}
+    </div>
+  `,
+    )
+    .join("");
+}
+
+function updateClientsList() {
+  const listContainer = document.getElementById("clients-list-container");
+  if (!listContainer) return;
+
+  const q = (state.searchQuery || "").toLowerCase();
+  const { clients, loans, payments, isAdmin, users } = state;
+
+  // Lógica de Filtrado
+  const filtered = clients.filter((c) => {
+    const matchesSearch =
+      c.full_name.toLowerCase().includes(q) ||
+      (c.id_number && c.id_number.includes(q));
+
+    // Calcular deuda activa para el filtro
+    const cLoans = loans.filter((l) => l.client_id === c.id);
+    const hasLiveDebt = cLoans.some((l) => {
+      const st = statusOf(l, payments);
+      return st === "active" || st === "overdue" || st === "pending";
+    });
+
+    if (clientsFilter === "clientsActive") return matchesSearch && hasLiveDebt;
+    if (clientsFilter === "clientsInactive")
+      return matchesSearch && !hasLiveDebt;
+    return matchesSearch;
+  });
+
+  if (!filtered.length) {
+    listContainer.innerHTML = `<div class="empty"><div class="ei">📋</div><p>No hay clientes.<br>Crea uno desde <b>Nuevo</b>.</p></div>`;
+    return;
+  }
+
+  // Renderizado de Cards
+  listContainer.innerHTML = filtered
+    .map((c) => {
+      const cLoans = loans.filter((l) => l.client_id === c.id);
+      const hasLiveDebt = cLoans.some((l) => {
+        const st = statusOf(l, payments);
+        return st === "active" || st === "overdue" || st === "pending";
+      });
+
+      const statusText = hasLiveDebt ? "ACTIVO" : "INACTIVO";
+      const statusClass = hasLiveDebt ? "b-paid" : "b-active";
+
+      // Lógica de foto
+      const photoHtml = c.photo
+        ? `<img src="${c.photo}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid var(--border)">`
+        : `<div style="width:40px;height:40px;border-radius:50%;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👤</div>`;
+
+      return `
+      <div class="dc">
+        <div class="dc-top" onclick="window._app.openClientDetail('${c.id}')" style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+            ${photoHtml}
+            <div style="min-width:0">
+              <div class="dc-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.full_name}</div>
+              <div class="dc-sub">
+                ID: ${c.id_number || "Sin cédula"} • ${cLoans.length} préstamos
+              </div>
+            </div>
+          </div>
+          <div class="badge ${statusClass}" style="font-size:10px;">${statusText}</div>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderClients() {
+  const q = (
+    document.getElementById("client-search")?.value || ""
+  ).toLowerCase();
+
+  // 1. Si el contenedor está vacío o no tiene el buscador, dibujamos la estructura base una sola vez
+  if (!document.querySelector(".clients-sticky")) {
+    document.getElementById("screen-clients").innerHTML = `
+      <div class="clients-sticky">
+        <div class="search-wrap">
+          <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="client-search" placeholder="Buscar cliente..." oninput="window._app.handleClientSearch(this.value)" value="${q}">
+        </div>
+        <div class="filter-row" id="clients-filter-container">
+          </div>
+      </div>
+      <div id="clients-list-container" class="clients-list-wrap">
+        </div>
+    `;
+    renderClientChips(); // Dibujar los filtros por primera vez
+  }
+
+  // 2. Llamamos a la función que solo actualiza las cards
+  updateClientsList();
+}
+
+function handleClientSearch(val) {
+  state.searchQuery = val;
+  updateClientsList(); // Solo actualiza las cards, el input ni se entera
+}
+
 function setClientFilter(f) {
-  clientFilter = f;
-  renderClients();
+  clientsFilter = f;
+  renderClientChips();
+  updateClientsList();
 }
 
 async function delClient(clientId) {
   const client = state.clients.find((c) => c.id === clientId);
+
+  // 2. Filtrar préstamos asociados que NO estén pagados
+  // Consideramos 'active', 'overdue' o 'pending' como impedimentos
+  const pendingLoans = state.loans.filter(
+    (l) => l.client_id === clientId && l.status !== "paid",
+  );
+
+  // 3. Validación de Bloqueo
+  if (pendingLoans.length > 0) {
+    showToast(
+      `⚠️ No se puede eliminar a ${client?.full_name || "este cliente"}. Tiene ${pendingLoans.length} préstamo(s) pendiente(s) o activo(s).`,
+    );
+    return;
+  }
+
   if (
     !confirm(
       `¿Eliminar a "${client?.full_name}"? Se conservarán sus préstamos en el historial.`,
@@ -510,13 +868,14 @@ async function delClient(clientId) {
     return;
   const { error } = await deleteClient(clientId, state.token);
   if (error) {
-    showToast("Error al eliminar cliente");
+    showToast("❌ Error al eliminar cliente");
     return;
   }
   setState({ clients: state.clients.filter((c) => c.id !== clientId) });
+  closeModal();
   renderClients();
   renderDashboard();
-  showToast("Cliente eliminado");
+  showToast("✅ Cliente eliminado correctamente");
 }
 
 // ══════════════════════════════════════════════════════════
@@ -530,147 +889,124 @@ function openClientDetail(clientId) {
   const clientLoans = loans.filter((l) => l.client_id === clientId);
   const isAdmin = state.user.role === "admin";
 
-  const loansHtml = clientLoans.length
-    ? clientLoans
-        .map((l) => {
-          const total =
-            parseFloat(l.amount) * (1 + parseFloat(l.interest_rate) / 100);
-          const pays = payments.filter((p) => p.loan_id === l.id);
-          const rec = pays.reduce((s, p) => s + parseFloat(p.amount), 0);
-          const saldo = total - rec;
-          const nc = ncuotas(l.collection_mode, l.weeks);
-          const cuota = total / nc;
-          const st = statusOf(l, payments);
-          const pct = Math.min(100, Math.round((rec / total) * 100));
-          const color = {
-            paid: "#00e5a0",
-            overdue: "#ff4444",
-            active: "#0099ff",
-            pending: "#ffb347",
-          }[st];
+  // --- ORDENAR PRÉSTAMOS ---
+  // 1. Los no pagados arriba. 2. Por fecha de inicio descendente.
+  const sortedLoans = clientLoans.sort((a, b) => {
+    const isAPending = a.status !== "paid" && a.status !== "canceled";
+    const isBPending = b.status !== "paid" && b.status !== "canceled";
+    if (isAPending && !isBPending) return -1;
+    if (!isAPending && isBPending) return 1;
+    return new Date(b.start_date) - new Date(a.start_date);
+  });
 
-          const paysHtml = pays.length
-            ? pays
-                .slice()
-                .reverse()
-                .map((p) => {
-                  const methodLabel =
-                    p.payment_method === "transfer"
-                      ? "🏦 Transferencia"
-                      : "💵 Efectivo";
-                  const methodColor =
-                    p.payment_method === "transfer"
-                      ? "var(--blue)"
-                      : "var(--accent)";
-                  return `
-      <div class="pay-item">
-        <div>
-          <div class="pamt">${fmt(p.amount)}</div>
-          <div class="pdate">${p.payment_date} · <span style="color:${methodColor}">${methodLabel}</span></div>
+  // Reutilizamos tu lógica de renderLoanCard pero sin el margen exterior para que encaje en el details
+  const renderLoanCard = (l) => {
+    const total =
+      parseFloat(l.amount) * (1 + parseFloat(l.interest_rate) / 100);
+    const pays = payments.filter((p) => p.loan_id === l.id);
+    const rec = pays.reduce((s, p) => s + parseFloat(p.amount), 0);
+    const saldo = total - rec;
+    const nc = ncuotas(l.collection_mode, l.weeks);
+    const cuota = total / nc;
+    const st = statusOf(l, payments);
+    const pct = Math.min(100, Math.round((rec / total) * 100));
+    const color = {
+      paid: "#00e5a0",
+      overdue: "#ff4444",
+      active: "#0099ff",
+      pending: "#ffb347",
+    }[st];
+
+    const paysHtml = pays.length
+      ? pays
+          .slice()
+          .reverse()
+          .map((p) => {
+            const methodColor =
+              p.payment_method === "transfer" ? "var(--blue)" : "var(--accent)";
+            return `
+            <div class="pay-item">
+              <div>
+                <div class="pamt">${fmt(p.amount)}</div>
+                <div class="pdate">${p.payment_date} · <span style="color:${methodColor}">${p.payment_method === "transfer" ? "🏦" : "💵"}</span></div>
+              </div>
+              ${
+                isAdmin
+                  ? `<div class="pi-actions">
+                <button class="btn-ep" onclick="window._app.editPayment('${p.id}',${p.amount},'${p.payment_method || "cash"}')">✏️</button>
+                <button class="btn-dp" onclick="window._app.delPayment('${p.id}','${l.id}')">🗑</button>
+              </div>`
+                  : ""
+              }
+            </div>`;
+          })
+          .join("")
+      : '<p style="color:var(--muted);font-size:13px;padding:8px 0">Sin pagos aún.</p>';
+
+    const amortRows = Array.from({ length: nc }, (_, i) => {
+      const ca = cuota * (i + 1);
+      const isPaid = rec >= ca - 0.1; // margen de error decimal
+      return `<tr class="${isPaid ? "r-paid" : ""}"><td>${i + 1}</td><td>${fmt(cuota)}</td><td>${fmt(ca)}</td><td>${fmt(Math.max(0, total - ca))}</td></tr>`;
+    }).join("");
+
+    return `
+      <div class="loan-detail-inner" style="padding-top:10px">
+        <div style="height:4px;background:var(--border);border-radius:99px;overflow:hidden;margin-bottom:12px">
+          <div style="height:100%;width:${pct}%;background:${color}"></div>
         </div>
-        ${
-          isAdmin
-            ? `<div class="pi-actions">
-          <button class="btn-ep" onclick="window._app.editPayment('${p.id}',${p.amount},'${p.payment_method || "cash"}')">✏️</button>
-          <button class="btn-dp" onclick="window._app.delPayment('${p.id}','${l.id}')">🗑</button>
-        </div>`
-            : ""
-        }
+        <div class="m-kpis" style="margin-bottom:15px">
+          <div class="m-kpi"><div class="m-kpi-val c-green">${fmt(rec)}</div><div class="m-kpi-lbl">RECAUDADO</div></div>
+          <div class="m-kpi"><div class="m-kpi-val c-orange">${fmt(saldo)}</div><div class="m-kpi-lbl">SALDO</div></div>
+          <div class="m-kpi"><div class="m-kpi-val c-blue">${fmt(cuota)}</div><div class="m-kpi-lbl">CUOTA</div></div>
+        </div>
+        <div class="sec-lbl">Historial de pagos</div>
+        <div class="pay-log">${paysHtml}</div>
+        <div class="sec-lbl">Amortización (${modeLabel(l.collection_mode)})</div>
+        <div class="amort-wrap"><table class="amort-table"><tbody>${amortRows}</tbody></table></div>
+        ${isAdmin ? `<button class="btn-d" style="margin-top:15px; width:100%" onclick="window._app.delLoan('${l.id}')">🗑 Eliminar préstamo</button>` : ""}
       </div>`;
-                })
-                .join("")
-            : '<p style="color:var(--muted);font-size:13px;padding:8px 0">Sin pagos aún.</p>';
+  };
 
-          const amortRows = Array.from({ length: nc }, (_, i) => {
-            const ca = cuota * (i + 1);
-            const sf = Math.max(0, total - ca);
-            const isPaid = rec >= ca;
-            const isCur = !isPaid && rec >= cuota * i;
-            return `<tr class="${isPaid ? "r-paid" : isCur ? "r-cur" : ""}">
-        <td>${i + 1}</td><td>${fmt(cuota)}</td><td>${fmt(ca)}</td><td>${fmt(sf)}</td>
-      </tr>`;
-          }).join("");
+  // --- GENERAR LISTA DE ACORDEONES ---
+  const loansHtml = sortedLoans
+    .map((l, index) => {
+      const total =
+        parseFloat(l.amount) * (1 + parseFloat(l.interest_rate) / 100);
+      const st = statusOf(l, payments);
 
-          return `
-    <div style="background:var(--s2);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div>
-          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">${modeLabel(l.collection_mode)} · ${l.weeks} sem.</div>
-          <div style="font-size:12px;color:var(--muted)">Desde ${l.start_date}</div>
+      return `
+      <details class="history-item" style="margin-bottom:10px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--s1)">
+        <summary style="padding:12px; cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; flex-direction:column; gap:2px">
+            <div style="font-weight:700; font-size:14px; color:var(--text)">
+              ${fmt(l.amount)} <span style="color:var(--muted); font-weight:400; font-size:12px">→ ${fmt(total)}</span>
+            </div>
+            <div style="font-size:11px; color:var(--muted)">Inició: ${l.start_date}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px">
+            <span class="badge ${STATUS_CLASS[st]}" style="font-size:10px; padding:2px 8px">${STATUS_LABEL[st].toUpperCase()}</span>
+            <span class="arrow" style="font-size:14px; color:var(--muted)">▾</span>
+          </div>
+        </summary>
+        <div style="padding:0 12px 12px 12px; border-top:1px solid var(--border); background:var(--s2)">
+          ${renderLoanCard(l)}
         </div>
-        <div class="badge ${STATUS_CLASS[st]}">${STATUS_LABEL[st]}</div>
-      </div>
-      <div style="height:4px;background:var(--border);border-radius:99px;overflow:hidden;margin-bottom:10px">
-        <div style="height:100%;width:${pct}%;background:${color};border-radius:99px"></div>
-      </div>
-      <div class="m-kpis">
-        <div class="m-kpi"><div class="m-kpi-val c-green">${fmt(rec)}</div><div class="m-kpi-lbl">RECAUDADO</div></div>
-        <div class="m-kpi"><div class="m-kpi-val c-orange">${fmt(saldo)}</div><div class="m-kpi-lbl">SALDO</div></div>
-        <div class="m-kpi"><div class="m-kpi-val c-blue">${fmt(cuota)}</div><div class="m-kpi-lbl">CUOTA</div></div>
-      </div>
-      <div class="sec-lbl">Registrar pago</div>
-      <div class="pay-row">
-        <input type="number" id="pay-${l.id}" placeholder="${Math.round(cuota)}" inputmode="numeric">
-        <button class="btn-pay" onclick="window._app.addPayment('${l.id}')">Pagar</button>
-      </div>
-      <div style="display:flex;gap:12px;margin-bottom:12px">
-        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;padding:8px 14px;background:var(--s2);border:1px solid var(--border);border-radius:10px;flex:1">
-          <input type="radio" name="pay-method-${l.id}" value="cash" checked
-            style="accent-color:var(--accent);width:16px;height:16px">
-          💵 Efectivo
-        </label>
-        <label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;padding:8px 14px;background:var(--s2);border:1px solid var(--border);border-radius:10px;flex:1">
-          <input type="radio" name="pay-method-${l.id}" value="transfer"
-            style="accent-color:var(--blue);width:16px;height:16px">
-          🏦 Transferencia
-        </label>
-      </div>
-      <div class="quick-btns">
-        <button class="qb" onclick="document.getElementById('pay-${l.id}').value=${Math.round(cuota)}">
-          Cuota<b>${fmt(cuota)}</b>
-        </button>
-        <button class="qb" onclick="document.getElementById('pay-${l.id}').value=${Math.round(saldo)}">
-          Saldo total<b>${fmt(saldo)}</b>
-        </button>
-      </div>
-      <div class="sec-lbl">Historial de pagos</div>
-      <div class="pay-log">${paysHtml}</div>
-      <div class="sec-lbl">Tabla de amortización</div>
-      <div class="amort-wrap">
-        <table class="amort-table">
-          <thead><tr><th>#</th><th>Cuota</th><th>Acumulado</th><th>Saldo</th></tr></thead>
-          <tbody>${amortRows}</tbody>
-        </table>
-      </div>
-      ${isAdmin ? `<div style="margin-top:14px"><button class="btn-d" onclick="window._app.delLoan('${l.id}')">🗑 Eliminar préstamo</button></div>` : ""}
-    </div>`;
-        })
-        .join("")
-    : '<p style="color:var(--muted);font-size:13px;padding:8px 0">Este cliente no tiene préstamos.</p>';
+      </details>`;
+    })
+    .join("");
 
-  // Photo section
-  const photoHtml = `
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
-      <div id="photo-preview" style="width:72px;height:72px;border-radius:50%;background:var(--s2);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:28px">
-        ${client.photo ? `<img src="${client.photo}" style="width:100%;height:100%;object-fit:cover">` : "👤"}
-      </div>
-      ${
-        isAdmin
-          ? `<div style="display:flex;flex-direction:column;gap:6px">
-        <label style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:12px;cursor:pointer;color:var(--text)">
-          📷 Cambiar foto
-          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="window._app.handlePhoto(event,'${clientId}')">
-        </label>
-        ${client.photo ? `<button onclick="window._app.removePhoto('${clientId}')" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-align:left">Eliminar foto</button>` : ""}
-      </div>`
-          : ""
-      }
-    </div>`;
+  // Foto y Formulario (manteniendo tu lógica)
+  const photoHtml = client.photo
+    ? `<img src="${client.photo}" 
+            class="profile-photo"
+            style="width:80px;height:80px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border);cursor: pointer"
+            onclick="window._app.viewPhoto('${client.photo}', '${client.full_name}')">`
+    : `<div style="width:40px;height:40px;border-radius:50%;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">👤</div>`;
 
   // Edit form (admin only)
   const editFormHtml = isAdmin
     ? `
-    <div style="background:var(--s2);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">
+    <div id="edit-client-section" style="display:none;background:var(--s2);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:12px">Editar datos del cliente</div>
       <div style="display:flex;flex-direction:column;gap:10px">
         <div class="fg"><label class="fl">Nombre completo</label>
@@ -688,20 +1024,70 @@ function openClientDetail(clientId) {
         <div class="fg"><label class="fl">Notas</label>
           <input class="fi" id="edit-notes" value="${client.notes || ""}">
         </div>
-        <button class="btn-p" onclick="window._app.saveClientEdit('${clientId}')">💾 Guardar cambios</button>
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+          <button class="btn-p" style="flex: 2;" onclick="window._app.saveClientEdit('${clientId}')">
+            💾 Guardar cambios
+          </button>
+          <button class="btn-s" style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text);" 
+                  onclick="document.getElementById('edit-client-section').style.display='none'; document.getElementById('btn-show-client-edit').style.display='block'">
+            Cancelar
+          </button>
       </div>
     </div>`
     : "";
 
   document.getElementById("modal-content").innerHTML = `
     <div class="modal-title">${client.full_name}</div>
-    <div class="modal-sub">${client.id_number || "Sin cédula"} · ${client.phone || "Sin teléfono"}</div>
-    ${photoHtml}
-    ${editFormHtml}
-    ${loansHtml}
-    <button class="btn-p" style="margin-top:8px" onclick="window._app.goNewLoan('${clientId}')">＋ Nuevo préstamo para este cliente</button>
+    <div class="modal-sub">ID: ${client.id_number || "Sin cédula"} · Celular: ${client.phone || "Sin teléfono"}</div>
+    
+    <div style="margin-top:16px">
+       ${photoHtml}
+    </div>
+
+    <div style="margin-top:16px">
+       ${editFormHtml}
+    </div>
+
+
+    <div class="sec-lbl" style="margin-top:20px">Historial de Préstamos</div>
+    ${loansHtml || '<p style="color:var(--muted);font-size:13px;padding:10px">No tiene préstamos registrados.</p>'}
+
+    <button class="btn-p" style="margin-top:20px" onclick="window._app.goNewLoan('${clientId}')">＋ Nuevo préstamo</button>
+    ${
+      isAdmin
+        ? `
+        <button id="btn-show-client-edit" class="btn-s" style="margin-top:8px; background:none; border:1px solid var(--border)" onclick="window._app.showEditClientForm()">✏️ Editar Datos Del Cliente</button>
+        <button class="btn-d" 
+                style="margin-top:12px; background:rgba(255,68,68,0.1); color:var(--red); border:1px solid rgba(255,68,68,0.2)" 
+                onclick="window._app.delClient('${client.id}')">
+          🗑 Eliminar Cliente por completo
+        </button>
+      `
+        : ""
+    }
   `;
   openModal();
+}
+
+function showEditClientForm() {
+  const section = document.getElementById("edit-client-section");
+  const btnEditar = document.getElementById("btn-show-client-edit");
+  if (section) {
+    // Si está oculto lo muestra, si está visible lo oculta
+    const isHidden = section.style.display === "none";
+    section.style.display = isHidden ? "block" : "none";
+
+    // Opcional: Hacer scroll suave hacia el formulario
+    if (isHidden) {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    if(btnEditar) {
+      btnEditar.style.display = "none";
+    }
+
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 // ── Guardar edición de cliente ──────────────────────────────────
@@ -713,22 +1099,27 @@ async function saveClientEdit(clientId) {
     address: document.getElementById("edit-addr")?.value.trim() || null,
     notes: document.getElementById("edit-notes")?.value.trim() || null,
   };
+
   const { data, error } = await updateClient(clientId, updates, state.token);
   if (error) {
     showToast("Error al guardar: " + error);
     return;
   }
+
   // Actualizar estado local
   setState({
     clients: state.clients.map((c) =>
       c.id === clientId ? { ...c, ...data } : c,
     ),
   });
+
   await putOne(STORES.CLIENTS, {
     ...state.clients.find((c) => c.id === clientId),
     ...data,
   });
+
   showToast("Cliente actualizado ✓");
+  renderClients();
   openClientDetail(clientId);
 }
 
@@ -739,7 +1130,7 @@ async function handlePhoto(event, clientId) {
   showToast("Comprimiendo imagen...");
 
   try {
-    const compressed = await compressImage(file, 400, 400, 0.65);
+    const compressed = await compressImage(file, 400, 400, 0.7);
     // Preview inmediato
     const preview = document.getElementById("photo-preview");
     if (preview)
@@ -823,12 +1214,46 @@ function compressImage(file, maxW, maxH, quality) {
   });
 }
 
+function viewPhoto(url, name) {
+  const viewer = document.createElement("div");
+  viewer.style = `
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.9); z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    cursor: zoom-out;
+  `;
+  viewer.onclick = () => viewer.remove();
+
+  viewer.innerHTML = `
+    <div style="position: relative; width: 90%; max-width: 500px;">
+      <img src="${url}" style="width: 100%; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+      <div style="color: white; text-align: center; margin-top: 15px; font-family: 'Syne', sans-serif;">
+        ${name}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(viewer);
+}
+
+
 // ══════════════════════════════════════════════════════════
 // NUEVO (cliente + préstamo)
 // ══════════════════════════════════════════════════════════
 let newLoanClientId = null;
 
-function goNewLoan(clientId) {
+async function goNewLoan(clientId) {
+  // 1. Verify if the client already has an active loan
+  const { loans, payments, clients } = state;
+  const clientLoans = loans.filter((l) => l.client_id === clientId && l.status === "active");
+
+  if (clientLoans.length > 0) {
+    alert(
+      "This client already has an active loan. It must be closed before opening a new one.",
+    );
+    return;
+  }
+
+  // 2. If no active loan exists, open the form passing the fixed clientId
   newLoanClientId = clientId;
   closeModal();
   renderScreen("nuevo");
@@ -849,7 +1274,7 @@ function goNewLoan(clientId) {
 }
 
 function renderNuevo() {
-  newLoanClientId = null;
+  newLoanClientId = newLoanClientId ?? null;
   document.getElementById("screen-nuevo").innerHTML = `
     <div class="card form-sec">
       <div class="card-title">Datos del cliente</div>
@@ -857,18 +1282,18 @@ function renderNuevo() {
         <div id="new-photo-preview" style="width:64px;height:64px;border-radius:50%;background:var(--s2);border:2px solid var(--border);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:24px">👤</div>
         <label style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;font-size:13px;cursor:pointer;color:var(--text);flex:1;text-align:center">
           📷 Agregar foto
-          <input type="file" accept="image/*" capture="environment" id="new-photo-input" style="display:none" onchange="window._app.handleNewPhoto(event)">
+          <input type="file" accept="image/*" capture="environment" id="new-photo-input" style="display:none" onchange="window._app.handleNewPhoto(event)" required>
         </label>
       </div>
-      <div class="fg"><label class="fl">Nombre completo</label><input class="fi" id="f-name" placeholder="Juan Pérez"></div>
-      <div class="fg"><label class="fl">Cédula</label><input class="fi" id="f-id" placeholder="123456789" inputmode="numeric"></div>
-      <div class="fg"><label class="fl">Teléfono</label><input class="fi" id="f-tel" placeholder="300 000 0000" inputmode="numeric"></div>
-      <div class="fg"><label class="fl">Dirección (opcional)</label><input class="fi" id="f-addr" placeholder="Calle 1 # 2-3"></div>
+      <div class="fg"><label class="fl">Nombre completo *</label><input class="fi" id="f-name" placeholder="Juan Pérez" required></div>
+      <div class="fg"><label class="fl">Cédula *</label><input class="fi" id="f-id" placeholder="123456789" inputmode="numeric" required></div>
+      <div class="fg"><label class="fl">Teléfono *</label><input class="fi" id="f-tel" placeholder="300 000 0000" inputmode="numeric" required></div>
+      <div class="fg"><label class="fl">Dirección *</label><input class="fi" id="f-addr" placeholder="Calle 1 # 2-3" required></div>
       <div class="fg"><label class="fl">Notas del cliente</label><input class="fi" id="f-notes" placeholder="Observaciones adicionales..."></div>
     </div>
     <div class="card form-sec">
       <div class="card-title">Condiciones del préstamo</div>
-      <div class="fg"><label class="fl">Monto ($)</label><input class="fi" id="f-amount" type="number" value="200000" oninput="window._app.updatePreview()"></div>
+      <div class="fg"><label class="fl">Monto ($)</label><input class="fi" id="f-amount" type="number" value="200000" oninput="window._app.updatePreview()" required></div>
       <div class="fg">
         <label class="fl">Interés (%)</label>
         <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;color:var(--muted);font-size:15px;display:flex;justify-content:space-between;align-items:center">
@@ -946,11 +1371,15 @@ async function crearPrestamo() {
   const amount = parseFloat(document.getElementById("f-amount").value);
   const rate = 20; // fijo al 20%, no modificable por el usuario
   const mode = document.getElementById("f-mode").value;
-  const weeks = parseInt(document.getElementById("f-weeks").value);
-  const date = document.getElementById("f-date").value;
+  const weeks = parseInt(document.getElementById("nl-weeks").value) || 0;
+  const startDateValue = document.getElementById("f-date").value;
+  const startDate = new Date(startDateValue + "T12:00:00");
+  const dueDateObj = new Date(startDate);
+  dueDateObj.setDate(startDate.getDate() + weeks * 7);
+  const dueDateValue = dueDateObj.toISOString().split("T")[0];
 
-  if (!name) {
-    showToast("Ingresa el nombre del cliente");
+  if (!name || !idNum || !phone || !addr) {
+    showToast("⚠️ Todos los campos con asterisco son obligatorios.");
     return;
   }
   if (!amount || amount <= 0) {
@@ -974,7 +1403,8 @@ async function crearPrestamo() {
     interest_rate: rate,
     collection_mode: mode,
     weeks,
-    start_date: date,
+    start_date: startDateValue,
+    due_date: dueDateValue,
     notes: lnotes,
   };
 
@@ -1058,37 +1488,42 @@ async function crearPrestamo() {
 // ══════════════════════════════════════════════════════════
 // PAYMENTS
 // ══════════════════════════════════════════════════════════
-async function addPayment(loanId) {
-  const input = document.getElementById("pay-" + loanId);
-  const amount = parseFloat(input?.value);
+async function savePayment(loanId) {
+  // 1. Capturar elementos del nuevo modal
+  const amountInput = document.getElementById("pay-amount");
+  const dateInput = document.getElementById("pay-date");
+  const methodInput = document.getElementById("pay-method");
+
+  const amount = parseFloat(amountInput?.value);
+  const paymentDate = dateInput?.value || today();
+  const method = methodInput?.value || "Efectivo";
+
+  // 2. Validación básica
   if (!amount || amount <= 0) {
     showToast("Ingresa un monto válido");
     return;
   }
 
-  // Read payment method radio
-  const methodEl = document.querySelector(
-    `input[name="pay-method-${loanId}"]:checked`,
-  );
-  const method = methodEl?.value || "cash";
-
   const payData = {
     loan_id: loanId,
     amount,
-    payment_date: today(),
+    payment_date: paymentDate,
     payment_method: method,
   };
 
+  // 3. Lógica de guardado (Online / Offline)
   if (navigator.onLine) {
     const { data, error } = await createPayment(payData, state.token);
     if (error) {
       showToast("Error al registrar pago");
       return;
     }
+    // Aseguramos que el loan_id esté presente en el objeto para el estado local
     const newPay = { ...data, loan_id: loanId };
     setState({ payments: [...state.payments, newPay] });
     await putOne(STORES.PAYMENTS, newPay);
   } else {
+    // Modo Offline
     const localPay = {
       id: uid(),
       ...payData,
@@ -1105,10 +1540,22 @@ async function addPayment(loanId) {
     showToast("Pago guardado offline");
   }
 
-  const clientId = state.loans.find((l) => l.id === loanId)?.client_id;
-  if (clientId) openClientDetail(clientId);
-  renderDashboard();
+  // 4. Finalización y Feedback
   showToast("Pago registrado ✓");
+
+  // Cerramos el modal
+  closeModal();
+
+  // 5. Refrescar Vistas
+  // Si estamos en la pestaña de préstamos, refrescamos los préstamos
+  if (state.view === "loans") {
+    renderLoans();
+  } else {
+    // Si veníamos desde el detalle del cliente, lo refrescamos
+    const clientId = state.loans.find((l) => l.id === loanId)?.client_id;
+    if (clientId) openClientDetail(clientId);
+    renderDashboard();
+  }
 }
 
 async function editPayment(payId, currentAmount, currentMethod) {
@@ -1422,8 +1869,8 @@ function renderResumen() {
       <div class="sum-row"><span class="sl">Total a recaudar</span>           <span class="sv">${fmt(totalDebe)}</span></div>
       <div class="sum-row"><span class="sl">💵 Recaudado efectivo</span>      <span class="sv c-green">${fmt(recCash)}</span></div>
       <div class="sum-row"><span class="sl">🏦 Recaudado transferencia</span> <span class="sv c-blue">${fmt(recTransfer)}</span></div>
-      <div class="sum-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
-        <span class="sl">Total recaudado</span>                              <span class="sv c-green">${fmt(rec)}</span>
+      <div class="sum-row" style="padding-top:8px;margin-top:4px;">
+        <span class="sl" style="color:var(--text)">Total recaudado</span>                              <span class="sv c-green">${fmt(rec)}</span>
       </div>
       <div class="sum-row"><span class="sl">Saldo pendiente</span>           <span class="sv c-orange">${fmt(totalDebe - rec)}</span></div>
       <div class="sum-row"><span class="sl">Total gastos</span>              <span class="sv c-red">−${fmt(totalExp)}</span></div>
@@ -1743,18 +2190,28 @@ window._app = {
   login,
   logout,
   togglePin,
+  renderLoans,
+  renderLoanCard,
+  setLoanFilter,
+  openLoanDetail,
+  openAddPayment,
   renderClients,
+  handleClientSearch,
+  updateClientsList,
+  renderClientChips,
   setClientFilter,
   delClient,
   openClientDetail,
   goNewLoan,
+  showEditClientForm,
   saveClientEdit,
   handlePhoto,
   removePhoto,
   handleNewPhoto,
+  viewPhoto,
   updatePreview,
   crearPrestamo,
-  addPayment,
+  savePayment,
   editPayment,
   delPayment,
   delLoan,
