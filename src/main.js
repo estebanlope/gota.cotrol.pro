@@ -1371,7 +1371,7 @@ async function crearPrestamo() {
   const amount = parseFloat(document.getElementById("f-amount").value);
   const rate = 20; // fijo al 20%, no modificable por el usuario
   const mode = document.getElementById("f-mode").value;
-  const weeks = parseInt(document.getElementById("nl-weeks").value) || 0;
+  const weeks = parseInt(document.getElementById("f-weeks").value) || 0;
   const startDateValue = document.getElementById("f-date").value;
   const startDate = new Date(startDateValue + "T12:00:00");
   const dueDateObj = new Date(startDate);
