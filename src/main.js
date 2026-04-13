@@ -818,7 +818,7 @@ function updateClientsList() {
             <div style="min-width:0">
               <div class="dc-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.full_name}</div>
               <div class="dc-sub">
-                ID: ${c.id_number || "Sin cédula"} • ${cLoans.length} préstamos
+                ID: ${c.id_number || "Sin cédula"} • ${cLoans.length} préstamo${cLoans.length !== 1 ? "s" : ""}
               </div>
             </div>
           </div>
@@ -1398,7 +1398,8 @@ async function crearPrestamo() {
   const startDateValue = document.getElementById("f-date").value;
   const startDate = new Date(startDateValue + "T12:00:00");
   const dueDateObj = new Date(startDate);
-  dueDateObj.setDate(startDate.getDate() + weeks * 7);
+  const daysToDueDate = weeks === 4 ? 30 : weeks * 7;
+  dueDateObj.setDate(startDate.getDate() + daysToDueDate);
   const dueDateValue = dueDateObj.toISOString().split("T")[0];
 
   if (!name || !idNum || !phone || !addr) {
@@ -2214,6 +2215,9 @@ window._app = {
   logout,
   togglePin,
   renderLoans,
+  renderLoanChips,
+  updateLoansList,
+  handleLoanSearch,
   renderLoanCard,
   setLoanFilter,
   openLoanDetail,
