@@ -398,7 +398,7 @@ function renderDashboard() {
 // ══════════════════════════════════════════════════════════
 // LOANS / PRESTAMOS
 // ══════════════════════════════════════════════════════════
-let loansFilter = "pending";
+state.loanFilter = "pending";
 
 function renderLoans() {
   const q = state.loanSearchQuery || "";
