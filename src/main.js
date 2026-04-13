@@ -394,99 +394,118 @@ function renderDashboard() {
   `;
 }
 
+
 // ══════════════════════════════════════════════════════════
 // LOANS / PRESTAMOS
 // ══════════════════════════════════════════════════════════
 let loansFilter = "pending";
 
 function renderLoans() {
-  const { loans, payments, clients } = state;
-  const isAdmin = state.user?.role === "admin";
-  const q = (
-    document.getElementById("loans-search")?.value || ""
-  ).toLowerCase();
+  const q = state.loanSearchQuery || "";
+  const screen = document.getElementById("screen-loans");
 
-  const filteredLoans = loans.filter((l) => {
+  // 1. Solo creamos el buscador si NO existe en pantalla
+  if (!document.querySelector(".loans-sticky")) {
+    screen.innerHTML = `
+      <div class="loans-sticky">
+        <div class="search-wrap">
+          <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="loan-search" placeholder="Buscar por cliente o monto..." 
+                 oninput="window._app.handleLoanSearch(this.value)" value="${q}">
+        </div>
+        <div class="filter-row" id="loans-filter-container"></div>
+      </div>
+      <div id="loans-list-container" class="loans-list-wrap"></div>
+    `;
+    renderLoanChips(); // Dibujamos los filtros (Al día, Mora, etc.)
+  }
+
+  // 2. Siempre actualizamos la lista
+  updateLoansList();
+}
+
+function handleLoanSearch(val) {
+  state.loanSearchQuery = val; // Guardamos en el estado global
+  updateLoansList(); // Refrescamos solo las cards
+}
+
+function renderLoanChips() {
+  const container = document.getElementById("loans-filter-container");
+  if (!container) return;
+
+  const opts = [
+    { id: "pending", label: "⏳ Pendientes" },
+    { id: "active", label: "🔄 En curso" },
+    { id: "paid", label: "✅ Pagado" },
+    { id: "overdue", label: "⚠️ Mora" },
+    { id: "all", label: "💰 Todos" },
+  ];
+
+  container.innerHTML = opts
+    .map(
+      (f) => `
+    <div class="chip ${state.loanFilter === f.id ? "active" : ""}" 
+         onclick="window._app.setLoanFilter('${f.id}')">
+      ${f.label}
+    </div>
+  `,
+    )
+    .join("");
+}
+
+function updateLoansList() {
+  const listContainer = document.getElementById("loans-list-container");
+  if (!listContainer) return;
+
+  const q = (state.loanSearchQuery || "").toLowerCase();
+  const { loans, clients, payments, loanFilter } = state;
+
+  const filtered = loans.filter((l) => {
     const client = clients.find((c) => c.id === l.client_id);
-    if (!client) return false;
+    const clientName = (client?.full_name || "").toLowerCase();
+    const matchesSearch =
+      clientName.includes(q) || l.amount.toString().includes(q);
 
-    // Búsqueda por nombre o cédula
-    const matchSearch =
-      client.full_name.toLowerCase().includes(q) ||
-      (client.id_number || "").includes(q);
-
-    // Obtener estado real del préstamo usando tu función statusOf
     const st = statusOf(l, payments);
-
-    let matchFilter = false;
-    if (!matchSearch) return false;
-    if (loansFilter === "all") {
-      return true;
-    } else {
-      matchFilter = (st === loansFilter);
-    }
-    return matchSearch && matchFilter;
+    if (loanFilter === "active") return matchesSearch && st === "active";
+    if (loanFilter === "overdue") return matchesSearch && st === "overdue";
+    if (loanFilter === "paid") return matchesSearch && st === "paid";
+    if (loanFilter === "pending") return matchesSearch && st === "pending";
+    return matchesSearch;
   });
 
-  // 3. Ordenar: Lo más urgente arriba (Overdue > Active > Paid)
-  filteredLoans.sort((a, b) => {
-    const stA = statusOf(a, payments);
-    const stB = statusOf(b, payments);
-    if (stA === "overdue" && stB !== "overdue") return -1;
-    if (stA !== "overdue" && stB === "overdue") return 1;
-    return new Date(a.due_date) - new Date(b.due_date);
-  });
+  if (!filtered.length) {
+    listContainer.innerHTML = `<div class="empty"><div class="ei">💸</div><p>No hay préstamos.</p></div>`;
+    return;
+  }
 
-  // Keep search + filters OUTSIDE the scrollable area via position:sticky
-  document.getElementById("screen-loans").innerHTML = `
-    <div class="loans-sticky">
-      <div class="search-wrap">
-        <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="loan-search" placeholder="Buscar préstamo..." oninput="window._app.renderLoans()" value="${q}">
-      </div>
-      <div class="filter-row">
-        ${["pending", "active", "paid", "overdue", "all"]
-          .map(
-            (f) => `
-          <div class="chip ${loansFilter === f ? "active" : ""}" onclick="window._app.setLoanFilter('${f}',this)">
-            ${f === "all" ? "Todos" : STATUS_LABEL[f]}
-          </div>`,
-          )
-          .join("")}
-      </div>
-    </div>
-    
-    <div class="loans-list-wrap">
-      ${
-        !filteredLoans.length
-          ? `<div class="empty"><div class="ei">📋</div><p>No hay préstamos.<br>Crea uno desde <b>Nuevo</b>.</p></div>`
-          : filteredLoans
-              .map((l) => {
-                const client = clients.find((c) => c.id === l.client_id);
-                const st = statusOf(l, payments);
+  // --- LLAMADO CORREGIDO AQUÍ ---
+  listContainer.innerHTML = filtered
+    .map((l) => {
+      const client = clients.find((c) => c.id === l.client_id);
+      const st = statusOf(l, payments);
 
-                // Cálculos financieros
-                const totalDebe =
-                  parseFloat(l.amount) *
-                  (1 + parseFloat(l.interest_rate) / 100);
-                const totalRec = payments
-                  .filter((p) => p.loan_id === l.id)
-                  .reduce((acc, p) => acc + parseFloat(p.amount), 0);
-                const saldo = totalDebe - totalRec;
-                const pct =
-                  totalDebe > 0
-                    ? Math.min(100, Math.round((totalRec / totalDebe) * 100))
-                    : 0;
+      // Cálculo de valores para la tarjeta
+      const lPayments = payments.filter((p) => p.loan_id === l.id);
+      const totalRecau = lPayments.reduce((sum, p) => sum + p.amount, 0);
+      const totalConInteres = l.amount + l.amount * (l.interest_rate / 100);
+      const saldo = totalConInteres - totalRecau;
+      const pct = Math.min(
+        Math.round((totalRecau / totalConInteres) * 100),
+        100,
+      );
 
-                return renderLoanCard(l, client, st, totalRec, saldo, pct);
-              })
-              .join("")
-      }
-    </div>
-  `;
+      // Enviamos los parámetros en el orden que tu función los recibe
+      return renderLoanCard(l, client, st, totalRecau, saldo, pct);
+    })
+    .join("");
 }
 
 function renderLoanCard(loan, client, st, totalRec, saldo, pct) {
+
+  const total = parseFloat(loan.amount) * (1 + parseFloat(loan.interest_rate) / 100);
+  const nc = ncuotas(loan.collection_mode, loan.weeks);
+  const cuota = total / nc;
   const color = {
     paid: "#00e5a0",
     overdue: "#ff4444",
@@ -513,8 +532,10 @@ function renderLoanCard(loan, client, st, totalRec, saldo, pct) {
       </div>
 
       <div class="dc-row" style="font-size:11px">
-        <span>Capital: ${fmt(loan.amount)}</span>
+        <span>Cuotas: ${nc}</span>
+        <span>Cuota: ${fmt(cuota)}</span>
         <span>Interés: ${loan.interest_rate}%</span>
+        <span>Capital: ${fmt(loan.amount)}</span>
       </div>
 
       <div style="display:flex; gap:8px; margin-top:12px">
@@ -530,7 +551,9 @@ function renderLoanCard(loan, client, st, totalRec, saldo, pct) {
 }
 
 function setLoanFilter(f) {
-  loansFilter = f;
+  state.loanFilter = f;
+  renderLoanChips();
+  updateLoansList();
   renderLoans();
 }
 
