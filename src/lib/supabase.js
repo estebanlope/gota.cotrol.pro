@@ -158,7 +158,7 @@ export async function getClients(token) {
  * Crea un nuevo cliente.
  */
 export async function addNewClient(
-  { full_name, id_number, phone, address, notes, photo },
+  { full_name, id_number, phone, address, notes, photo, created_at },
   token,
 ) {
   const { data, error } = await supabase.rpc("create_client", {
@@ -169,6 +169,7 @@ export async function addNewClient(
     p_address: address || null,
     p_notes: notes || null,
     p_photo: photo || null,
+    p_created_at: created_at || null,
   });
   return {
     data: data?.[0] || null,
@@ -270,6 +271,7 @@ export async function createLoan(
     weeks,
     start_date,
     due_date,
+    created_at,
     notes,
   },
   token,
@@ -283,6 +285,7 @@ export async function createLoan(
     p_weeks: weeks,
     p_start_date: start_date,
     p_due_date: due_date,
+    p_created_at: created_at,
     p_notes: notes || null,
   });
   return {
@@ -374,7 +377,7 @@ export async function getExpenses(token) {
  * Registra un gasto.
  */
 export async function createExpense(
-  { category, description, amount, expense_date },
+  { category, description, amount, expense_date, created_at },
   token,
 ) {
   const { data, error } = await supabase.rpc("create_expense", {
@@ -383,6 +386,7 @@ export async function createExpense(
     p_description: description,
     p_amount: amount,
     p_expense_date: expense_date,
+    p_created_at: created_at,
   });
   return {
     data: data?.[0] || null,

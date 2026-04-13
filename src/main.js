@@ -46,6 +46,7 @@ import {
   fmt,
   fmtS,
   today,
+  getColombiaISO,
   uid,
   ncuotas,
   modeLabel,
@@ -1429,6 +1430,9 @@ async function crearPrestamo() {
   btn.disabled = true;
   btn.textContent = "Guardando...";
 
+  const nowColombia = getColombiaISO();
+  console.log(nowColombia);
+
   const clientData = {
     full_name: name,
     id_number: idNum,
@@ -1436,7 +1440,9 @@ async function crearPrestamo() {
     address: addr,
     notes,
     photo: _newClientPhoto || null,
+    created_at: nowColombia,
   };
+  
   const loanData = {
     amount,
     interest_rate: rate,
@@ -1445,6 +1451,7 @@ async function crearPrestamo() {
     start_date: startDateValue,
     due_date: dueDateValue,
     notes: lnotes,
+    created_at: nowColombia,
   };
 
   if (navigator.onLine) {
@@ -1491,7 +1498,6 @@ async function crearPrestamo() {
         id: localClientId,
         ...clientData,
         created_by: state.user.id,
-        created_at: new Date().toISOString(),
         is_active: true,
       };
       setState({ clients: [...state.clients, localClient] });
@@ -1509,7 +1515,6 @@ async function crearPrestamo() {
       client_id: localClientId,
       ...loanData,
       created_by: state.user.id,
-      created_at: new Date().toISOString(),
       status: "active",
     };
     setState({ loans: [localLoan, ...state.loans] });
@@ -1549,11 +1554,14 @@ async function savePayment(loanId) {
     return;
   }
 
+  const nowColombia = getColombiaISO();
+
   const payData = {
     loan_id: loanId,
     amount,
     payment_date: paymentDate,
     payment_method: method,
+    created_at: nowColombia,
   };
 
   // 3. Lógica de guardado (Online / Offline)
@@ -1573,7 +1581,6 @@ async function savePayment(loanId) {
       id: uid(),
       ...payData,
       registered_by: state.user.id,
-      created_at: new Date().toISOString(),
     };
     setState({ payments: [...state.payments, localPay] });
     await putOne(STORES.PAYMENTS, localPay);
@@ -1755,11 +1762,14 @@ async function addExpense() {
     return;
   }
 
+  const nowColombia = getColombiaISO();
+
   const expData = {
     category: cat,
     description: desc,
     amount: amt,
     expense_date: date,
+    created_at: nowColombia,
   };
 
   if (navigator.onLine) {
@@ -1775,7 +1785,6 @@ async function addExpense() {
       id: uid(),
       ...expData,
       registered_by: state.user.id,
-      created_at: new Date().toISOString(),
     };
     setState({ expenses: [local, ...state.expenses] });
     await putOne(STORES.EXPENSES, local);
@@ -2016,6 +2025,7 @@ async function loadRangeSummary() {
     '<div class="loading"><div class="spinner"></div>Calculando...</div>';
 
   const { data, error } = await getSummaryByRange(from, to, state.token);
+  console.log(from, to)
   if (error || !data) {
     resultsEl.innerHTML =
       '<p style="color:var(--muted);font-size:13px">Error al cargar datos.</p>';

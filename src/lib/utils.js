@@ -7,7 +7,8 @@ export const fmtS = n => {
   return '$' + Math.round(n)
 }
 
-export const today = () => new Date().toISOString().split('T')[0]
+const now = new Date();
+export const today = () => new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString().split("T")[0];
 export const uid   = () => Date.now().toString(36) + Math.random().toString(36).slice(2)
 
 export function ncuotas(mode, weeks) {
@@ -32,6 +33,14 @@ export function statusOf(loan, payments) {
   end.setDate(end.getDate() + parseInt(loan.weeks) * 7)
   if (new Date() > end) return 'overdue'
   return 'active'
+}
+
+// Retorna un string ISO ajustado a la zona horaria de Colombia
+export const getColombiaISO = () => {
+  const now = new Date();
+  // Ajustamos restando 5 horas
+  const col = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+  return col.toISOString();
 }
 
 export const STATUS_LABEL = {
