@@ -651,7 +651,6 @@ function openLoanDetail(loanId) {
 }
 
 function openAddPayment(loanId) {
-
   const loan = state.loans.find((l) => l.id === loanId);
   const client = state.clients.find((c) => c.id === loan.client_id);
 
