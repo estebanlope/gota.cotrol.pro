@@ -12,7 +12,7 @@ export const uid   = () => Date.now().toString(36) + Math.random().toString(36).
 
 export function ncuotas(mode, weeks) {
   weeks = parseInt(weeks) || 4
-  if (mode === 'daily')    return weeks * 6
+  if (mode === 'daily')    return Math.ceil(weeks * 7 / 5) * 5
   if (mode === 'weekly')   return weeks
   if (mode === 'biweekly') return Math.ceil(weeks / 2)
   return weeks
