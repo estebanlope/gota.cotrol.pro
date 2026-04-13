@@ -410,7 +410,7 @@ function renderLoans() {
       <div class="loans-sticky">
         <div class="search-wrap">
           <svg class="search-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input type="text" id="loan-search" placeholder="Buscar por cliente o monto..." 
+          <input type="text" id="loan-search" placeholder="Buscar por cliente..." 
                  oninput="window._app.handleLoanSearch(this.value)" value="${q}">
         </div>
         <div class="filter-row" id="loans-filter-container"></div>
@@ -1383,6 +1383,21 @@ function updatePreview() {
   }
 }
 
+async function notifyNewLoan(client, loan) {
+  // URL del nuevo Worker que acabas de crear
+  const WORKER_URL = "https://bot-newloan-telegram-report.eslopezra.workers.dev/";
+
+  try {
+    await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client, loan }),
+    });
+  } catch (error) {
+    console.error("Error notificando a Telegram:", error);
+  }
+}
+
 async function crearPrestamo() {
   const btn = document.getElementById("btn-crear");
   const name = document.getElementById("f-name").value.trim();
@@ -1459,6 +1474,12 @@ async function crearPrestamo() {
       btn.disabled = false;
       btn.textContent = "＋ Crear préstamo";
       return;
+    } else {
+      // Obtenemos los datos del cliente actualizados del estado o del formulario
+      const clientInfo = state.clients.find(c => c.id === clientId) || clientData;
+      
+      // Disparamos la notificación de forma asíncrona (sin esperar a que termine)
+      notifyNewLoan(clientInfo, loanData);
     }
     setState({ loans: [newLoan, ...state.loans] });
     await putOne(STORES.LOANS, newLoan);
@@ -1841,7 +1862,6 @@ function renderResumen() {
   const interesRecuperado = Math.max(0, rec - (cap - capitalActivo));
   const capitalDisponible = base - capitalActivo + interesRecuperado - totalExp;
 
-  const firstOfMonth = today().slice(0, 7) + "-01";
   const todayStr = today();
 
   const adminSection = isAdmin
@@ -1910,7 +1930,7 @@ function renderResumen() {
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <div class="fg" style="flex:1;min-width:120px">
           <label class="fl">Desde</label>
-          <input class="fi" type="date" id="range-from" value="${firstOfMonth}">
+          <input class="fi" type="date" id="range-from" value="${todayStr}">
         </div>
         <div class="fg" style="flex:1;min-width:120px">
           <label class="fl">Hasta</label>
@@ -1918,8 +1938,9 @@ function renderResumen() {
         </div>
       </div>
       <div class="filter-row" style="margin-bottom:14px">
-        <button class="chip active" onclick="window._app.setQuickRange('month',this)">Este mes</button>
+        <button class="chip active" onclick="window._app.setQuickRange('day',this)">Hoy</button>
         <button class="chip" onclick="window._app.setQuickRange('week',this)">Esta semana</button>
+        <button class="chip" onclick="window._app.setQuickRange('month',this)">Este mes</button>
         <button class="chip" onclick="window._app.setQuickRange('quarter',this)">Trimestre</button>
         <button class="chip" onclick="window._app.setQuickRange('year',this)">Este año</button>
       </div>
@@ -1955,7 +1976,11 @@ function setQuickRange(preset, el) {
   const t = new Date();
   let from,
     to = today();
-  if (preset === "week") {
+  if (preset === "day") {
+    const d =  new Date(t);
+    from = d.toISOString().split("T")[0];
+    to = d.toISOString().split("T")[0];
+  } else if (preset === "week") {
     const d = new Date(t);
     d.setDate(d.getDate() - d.getDay() + 1); // lunes
     from = d.toISOString().split("T")[0];
@@ -2238,6 +2263,7 @@ window._app = {
   viewPhoto,
   updatePreview,
   crearPrestamo,
+  notifyNewLoan,
   savePayment,
   editPayment,
   delPayment,
