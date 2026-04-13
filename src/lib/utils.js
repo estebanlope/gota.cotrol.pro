@@ -7,12 +7,13 @@ export const fmtS = n => {
   return '$' + Math.round(n)
 }
 
-export const today = () => new Date().toISOString().split('T')[0]
+const now = new Date();
+export const today = () => new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString().split("T")[0];
 export const uid   = () => Date.now().toString(36) + Math.random().toString(36).slice(2)
 
 export function ncuotas(mode, weeks) {
   weeks = parseInt(weeks) || 4
-  if (mode === 'daily')    return weeks * 6
+  if (mode === 'daily')    return Math.ceil(weeks * 7 / 5) * 5
   if (mode === 'weekly')   return weeks
   if (mode === 'biweekly') return Math.ceil(weeks / 2)
   return weeks
@@ -34,12 +35,22 @@ export function statusOf(loan, payments) {
   return 'active'
 }
 
-export const STATUS_LABEL = {
-  paid:    '✅ Pagado',
-  active:  '🔄 En curso',
-  pending: '⏳ Sin iniciar',
-  overdue: '⚠️ Mora'
+// Retorna un string ISO ajustado a la zona horaria de Colombia
+export const getColombiaISO = () => {
+  const now = new Date();
+  // Ajustamos restando 5 horas
+  const col = new Date(now.getTime() - (5 * 60 * 60 * 1000));
+  return col.toISOString();
 }
+
+export const STATUS_LABEL = {
+  paid: "✅ Pagado",
+  active: "🔄 En curso",
+  clientsActive: "✅ Activo",
+  clientsInactive: "📁 Inactivo",
+  pending: "⏳ Sin iniciar",
+  overdue: "⚠️ Mora",
+};
 
 export const STATUS_CLASS = {
   paid:    'b-paid',
