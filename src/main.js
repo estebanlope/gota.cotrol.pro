@@ -658,6 +658,8 @@ function openAddPayment(loanId) {
   const loanPayments = state.payments.filter((p) => p.loan_id === loanId);
   const totalDebe =
     parseFloat(loan.amount) * (1 + parseFloat(loan.interest_rate) / 100);
+  const nc = ncuotas(loan.collection_mode, loan.weeks);
+  const cuota = totalDebe / nc;
   const totalRec = loanPayments.reduce(
     (acc, p) => acc + parseFloat(p.amount),
     0,
@@ -703,7 +705,8 @@ function openAddPayment(loanId) {
         <label class="fl">Monto del Abono</label>
         <input type="number" id="pay-amount" class="fi" 
                placeholder="¿Cuánto paga hoy?" 
-               style="font-size:24px; font-weight:800; height:60px; text-align:center; color:var(--p1)">
+               style="font-size:24px; font-weight:800; height:60px; text-align:center; color:var(--p1)"
+               value=${cuota}>
       </div>
 
       <div class="fg" style="margin-top:15px">
@@ -715,8 +718,8 @@ function openAddPayment(loanId) {
       <div class="fg" style="margin-top:15px">
         <label class="fl">Método de Pago</label>
         <select id="pay-method" class="fi">
-          <option value="cash">Efectivo</option>
           <option value="transfer">Transferencia / Nequi</option>
+          <option value="cash">Efectivo</option>
         </select>
       </div>
     </div>
