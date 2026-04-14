@@ -563,7 +563,9 @@ function openLoanDetail(loanId) {
   const loan = state.loans.find(l => l.id === loanId);
   if (!loan) return;
 
-  const loanPayments = state.payments.filter(p => p.loan_id === loanId);
+  const loanPayments = state.payments
+    .filter((p) => p.loan_id === loanId)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));;
   
   // 2. Cálculos financieros
   const totalDebe = parseFloat(loan.amount) * (1 + parseFloat(loan.interest_rate) / 100);
@@ -1402,6 +1404,20 @@ async function notifyNewLoan(client, loan) {
   }
 }
 
+async function sendNotification(type, payload) {
+  const WORKER_URL =
+    "https://bot-newloan-telegram-report.eslopezra.workers.dev/";
+  try {
+    fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, payload }),
+    });
+  } catch (e) {
+    console.error("Error notify:", e);
+  }
+}
+
 async function crearPrestamo() {
   const btn = document.getElementById("btn-crear");
   const name = document.getElementById("f-name").value.trim();
@@ -1418,6 +1434,7 @@ async function crearPrestamo() {
   const startDate = new Date(startDateValue + "T12:00:00");
   const dueDateObj = new Date(startDate);
   const daysToDueDate = weeks === 4 ? 30 : weeks * 7;
+  console.log(daysToDueDate, dueDateObj.toISOString().split("T")[0]);
   dueDateObj.setDate(startDate.getDate() + daysToDueDate);
   const dueDateValue = dueDateObj.toISOString().split("T")[0];
 
@@ -1489,7 +1506,7 @@ async function crearPrestamo() {
       const clientInfo = state.clients.find(c => c.id === clientId) || clientData;
       
       // Disparamos la notificación de forma asíncrona (sin esperar a que termine)
-      notifyNewLoan(clientInfo, loanData);
+      sendNotification("NEW_LOAN", { client: clientInfo, loan: loanData });
     }
     setState({ loans: [newLoan, ...state.loans] });
     await putOne(STORES.LOANS, newLoan);
@@ -1573,6 +1590,11 @@ async function savePayment(loanId) {
     if (error) {
       showToast("Error al registrar pago");
       return;
+    } else {
+      sendNotification("NEW_PAYMENT", {
+        p_amount: amount,
+        p_method: method,
+      });
     }
     // Aseguramos que el loan_id esté presente en el objeto para el estado local
     const newPay = { ...data, loan_id: loanId };
@@ -1780,6 +1802,12 @@ async function addExpense() {
     if (error) {
       showToast("Error al guardar gasto");
       return;
+    } else {
+      sendNotification("NEW_EXPENSE", {
+        e_cat: cat,
+        e_desc: desc,
+        e_amount: amt,
+      });
     }
     setState({ expenses: [data, ...state.expenses] });
     await putOne(STORES.EXPENSES, data);
@@ -2050,10 +2078,10 @@ async function loadRangeSummary() {
     </div>
     <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px">
       <div class="sum-row"><span class="sl">Intereses generados</span>    <span class="sv c-green">${fmt(d.loans_interest)}</span></div>
+      <div class="sum-row"><span class="sl">Clientes nuevos</span>         <span class="sv">${d.clients_new}</span></div>
       <div class="sum-row"><span class="sl">Total a cobrar (nuevos)</span> <span class="sv">${fmt(d.loans_total)}</span></div>
       <div class="sum-row"><span class="sl">Cobros realizados</span>       <span class="sv c-green">${fmt(d.payments_total)} (${d.payments_count} pagos)</span></div>
       <div class="sum-row"><span class="sl">Gastos del período</span>      <span class="sv c-red">−${fmt(d.expenses_total)}</span></div>
-      <div class="sum-row"><span class="sl">Clientes nuevos</span>         <span class="sv">${d.clients_new}</span></div>
       <div class="sum-row"><span class="sl" style="font-weight:700">Utilidad del período</span>
         <span class="sv ${utilidad >= 0 ? "c-green" : "c-red"}" style="font-size:15px">${fmt(utilidad)}</span>
       </div>
