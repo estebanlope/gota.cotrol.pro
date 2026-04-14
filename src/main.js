@@ -1389,24 +1389,8 @@ function updatePreview() {
   }
 }
 
-async function notifyNewLoan(client, loan) {
-  // URL del nuevo Worker que acabas de crear
-  const WORKER_URL = "https://bot-newloan-telegram-report.eslopezra.workers.dev/";
-
-  try {
-    await fetch(WORKER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client, loan }),
-    });
-  } catch (error) {
-    console.error("Error notificando a Telegram:", error);
-  }
-}
-
 async function sendNotification(type, payload) {
-  const WORKER_URL =
-    "https://bot-newloan-telegram-report.eslopezra.workers.dev/";
+  const WORKER_URL = "bot-moneymovement-telegram-report.eslopezra.workers.dev";
   try {
     fetch(WORKER_URL, {
       method: "POST",
@@ -2304,7 +2288,7 @@ window._app = {
   viewPhoto,
   updatePreview,
   crearPrestamo,
-  notifyNewLoan,
+  sendNotification,
   savePayment,
   editPayment,
   delPayment,
