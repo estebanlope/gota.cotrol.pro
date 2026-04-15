@@ -1390,7 +1390,7 @@ function updatePreview() {
 }
 
 async function sendNotification(type, payload) {
-  const WORKER_URL = "bot-moneymovement-telegram-report.eslopezra.workers.dev";
+  const WORKER_URL = "https://bot-moneymovement-telegram-report.eslopezra.workers.dev/";
   try {
     fetch(WORKER_URL, {
       method: "POST",
