@@ -1828,12 +1828,6 @@ body {
   margin-bottom: 4px
 }
 
-.modal-sub {
-  font-size: 13px;
-  color: var(--muted);
-  margin-bottom: 18px
-}
-
 .m-kpis {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;

@@ -56,6 +56,8 @@ import {
   EXP_CATEGORY,
 } from "./lib/utils.js";
 
+import { sendNotification } from "./lib/notifications.js";
+
 // ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
@@ -565,16 +567,45 @@ function openLoanDetail(loanId) {
 
   const loanPayments = state.payments
     .filter((p) => p.loan_id === loanId)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));;
-  
-  // 2. Cálculos financieros
-  const totalDebe = parseFloat(loan.amount) * (1 + parseFloat(loan.interest_rate) / 100);
-  const totalRec = loanPayments.reduce((acc, p) => acc + parseFloat(p.amount), 0);
-  const saldo = totalDebe - totalRec;
-  const pct = Math.min(Math.round((totalRec / totalDebe) * 100), 100);
-  const st = statusOf(loan, state.payments);
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-  // 3. Construir el HTML del Modal
+  // 2. Cálculos financieros
+  const totalDebe =
+    parseFloat(loan.amount) * (1 + parseFloat(loan.interest_rate) / 100);
+  const totalRec = loanPayments.reduce(
+    (acc, p) => acc + parseFloat(p.amount),
+    0,
+  );
+  const saldo = totalDebe - totalRec;
+  const pct =
+    totalDebe > 0 ? Math.min(Math.round((totalRec / totalDebe) * 100), 100) : 0;
+  const st = statusOf(loan, loanPayments);
+
+  // 3. Cálculos para la tabla de Amortización
+  const nc = ncuotas(loan.collection_mode, loan.weeks);
+  const valorCuota = totalDebe / nc;
+
+  const color = {
+    paid: "#00e5a0",
+    overdue: "#ff4444",
+    active: "#0099ff",
+    pending: "#ffb347",
+  }[st];
+
+  const amortRows = Array.from({ length: nc }, (_, i) => {
+    const cuotaAcumulada = valorCuota * (i + 1);
+    // Marcamos como pagada si el recaudo cubre esta cuota (con margen de 1 peso)
+    const isPaid = totalRec >= cuotaAcumulada - 1;
+    return `
+      <tr class="${isPaid ? "r-paid" : ""}">
+        <td>${i + 1}</td>
+        <td>${fmt(valorCuota)}</td>
+        <td>${fmt(cuotaAcumulada)}</td>
+        <td>${fmt(Math.max(0, totalDebe - cuotaAcumulada))}</td>
+      </tr>`;
+  }).join("");
+
+  // 4. Construir el HTML del Modal
   document.getElementById("modal-content").innerHTML = `
     <div class="modal-title">Detalle del Préstamo</div>
     <div class="modal-sub">ID: ${loan.id.slice(0, 8).toUpperCase()}</div>
@@ -615,6 +646,34 @@ function openLoanDetail(loanId) {
         </div>
       </div>
     </div>
+
+    <details class="history-item" style="margin-top:15px; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--s1)">
+      <summary style="padding:12px; cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; flex-direction:column; gap:2px">
+          <div style="font-weight:700; font-size:13px; color:var(--text)">TABLA DE AMORTIZACIÓN</div>
+          <div style="font-size:11px; color:var(--muted)">${nc} cuotas (${modeLabel(loan.collection_mode)})</div>
+        </div>
+        <span class="arrow" style="font-size:14px; color:var(--muted)">▾</span>
+      </summary>
+      <div style="padding:12px; border-top:1px solid var(--border); background:var(--s2)">
+        <div style="height:4px;background:var(--border);border-radius:99px;overflow:hidden;margin-bottom:12px">
+          <div style="height:100%;width:${pct}%;background:${color}"></div>
+        </div>
+        <div class="amort-wrap">
+          <table class="amort-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Cuota</th>
+                <th>Acum.</th>
+                <th>Saldo</th>
+              </tr>
+            </thead>
+            <tbody>${amortRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </details>
 
     <div class="sec-lbl" style="margin:25px 0 12px 0; display:flex; justify-content:space-between; align-items:center">
       <span>Historial de Abonos</span>
@@ -903,6 +962,7 @@ async function delClient(clientId) {
   setState({ clients: state.clients.filter((c) => c.id !== clientId) });
   closeModal();
   renderClients();
+  renderLoans()
   renderDashboard();
   showToast("✅ Cliente eliminado correctamente");
 }
@@ -1067,7 +1127,7 @@ function openClientDetail(clientId) {
 
   document.getElementById("modal-content").innerHTML = `
     <div class="modal-title">${client.full_name}</div>
-    <div class="modal-sub">ID: ${client.id_number || "Sin cédula"} · Celular: ${client.phone || "Sin teléfono"}</div>
+    <div class="modal-sub">ID: ${client.id_number || "Sin cédula"} · Celular: ${client.phone || "Sin teléfono"} · Dirección: ${client.address || "Sin dirección"}</div>
     
     <div style="margin-top:16px">
        ${photoHtml}
@@ -1149,6 +1209,7 @@ async function saveClientEdit(clientId) {
 
   showToast("Cliente actualizado ✓");
   renderClients();
+  renderLoans();
   openClientDetail(clientId);
 }
 
@@ -1389,19 +1450,6 @@ function updatePreview() {
   }
 }
 
-async function sendNotification(type, payload) {
-  const WORKER_URL = "https://bot-moneymovement-telegram-report.eslopezra.workers.dev/";
-  try {
-    fetch(WORKER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, payload }),
-    });
-  } catch (e) {
-    console.error("Error notify:", e);
-  }
-}
-
 async function crearPrestamo() {
   const btn = document.getElementById("btn-crear");
   const name = document.getElementById("f-name").value.trim();
@@ -1490,7 +1538,10 @@ async function crearPrestamo() {
       const clientInfo = state.clients.find(c => c.id === clientId) || clientData;
       
       // Disparamos la notificación de forma asíncrona (sin esperar a que termine)
-      sendNotification("NEW_LOAN", { client: clientInfo, loan: loanData });
+      sendNotification("NEW_LOAN", { 
+        client: clientInfo, 
+        loan: loanData 
+      });
     }
     setState({ loans: [newLoan, ...state.loans] });
     await putOne(STORES.LOANS, newLoan);
@@ -1533,6 +1584,8 @@ async function crearPrestamo() {
 
   _newClientPhoto = null;
   renderNuevo();
+  renderLoans();
+  renderClients();
   renderDashboard();
   btn.disabled = false;
   btn.textContent = "＋ Crear préstamo";
@@ -1605,6 +1658,7 @@ async function savePayment(loanId) {
   showToast("Pago registrado ✓");
 
   // Cerramos el modal
+  renderLoans();
   closeModal();
 
   // 5. Refrescar Vistas
@@ -1655,6 +1709,7 @@ async function editPayment(payId, currentAmount, currentMethod) {
   const clientId = state.loans.find((l) => l.id === loanId)?.client_id;
   if (clientId) openClientDetail(clientId);
   showToast("Pago actualizado ✓");
+  renderLoans();
 }
 
 async function delPayment(payId, loanId) {
@@ -1664,6 +1719,7 @@ async function delPayment(payId, loanId) {
   const clientId = state.loans.find((l) => l.id === loanId)?.client_id;
   if (clientId) openClientDetail(clientId);
   renderDashboard();
+  renderLoans();
   showToast("Pago eliminado");
 }
 
@@ -1681,6 +1737,7 @@ async function delLoan(loanId) {
   closeModal();
   renderDashboard();
   renderClients();
+  renderLoans();
   showToast("Préstamo eliminado");
 }
 
@@ -1832,8 +1889,6 @@ async function delExpense(id) {
 // ══════════════════════════════════════════════════════════
 // RESUMEN — disponible para todos los roles
 // ══════════════════════════════════════════════════════════
-let _rangeData = null;
-
 function renderResumen() {
   const { loans, payments, expenses, capitalBase } = state;
   const isAdmin = state.user?.role === "admin";
