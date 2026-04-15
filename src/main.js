@@ -634,6 +634,10 @@ function openLoanDetail(loanId) {
           <label style="font-size:10px; color:var(--muted); text-transform:uppercase">Fecha Vence</label>
           <div style="font-weight:bold; font-size:15px">${loan.due_date ? new Date(loan.due_date + "T12:00:00").toLocaleDateString() : "N/A"}</div>
         </div>
+        <div>
+          <label style="font-size:10px; color:var(--muted); text-transform:uppercase">Notas del Préstamo</label>
+          <div style="font-weight:bold; font-size:15px">${loan.notes ? loan.notes : "Sin notas adicionales."}</div>
+        </div>
       </div>
 
       <div style="margin-top:20px">
@@ -884,6 +888,9 @@ function updateClientsList() {
               <div class="dc-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.full_name}</div>
               <div class="dc-sub">
                 ID: ${c.id_number || "Sin cédula"} • ${cLoans.length} préstamo${cLoans.length !== 1 ? "s" : ""}
+              </div>
+              <div class="dc-sub">
+                Notas del Cliente: ${c.notes ? c.notes : "Sin Notas Adicionales del Cliente"}
               </div>
             </div>
           </div>
